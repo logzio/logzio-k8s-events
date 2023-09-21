@@ -1,309 +1,109 @@
 package resources
 
 import (
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/strings/slices"
 	"main.go/common"
 	"reflect"
 )
 
-// Secret Kind
-func getSecretRelatedPods(secretName string) (relatedPods []string) {
+// Similarly, define methods for other workload types...
 
-	// List Pods
-	pods := GetPods()
-	// Create a map of Pods names to Pod objects.
-	podsMap := map[string]corev1.Pod{}
-	for _, pod := range pods {
-		if reflect.ValueOf(pod).IsValid() {
-			podsMap[pod.Name] = pod
+func GetSecretRelatedWorkloads(secretName string, workloads []Workload) (relatedWorkloads []string) {
+	// Create a map of workload names to workloads.
+	workloadsMap := map[string]Workload{}
+	for _, workload := range workloads {
+		if reflect.ValueOf(workload).IsValid() {
+			workloadsMap[workload.GetName()] = workload
 		}
 	}
 
-	// Iterate through the Pods and check for the secret name.
-	for podName, pod := range podsMap {
-		for _, container := range pod.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == secretName && !slices.Contains(relatedPods, podName) {
-						relatedPods = append(relatedPods, podName)
-					}
-				}
-			}
-
-		}
-		for _, volume := range pod.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.Secret != nil && volume.Secret.SecretName == secretName && !slices.Contains(relatedPods, podName) {
-				relatedPods = append(relatedPods, podName)
-
-			}
-		}
-	}
-
-	return relatedPods
-}
-func getSecretRelatedDaemonSets(secretName string) (relatedDaemonSets []string) {
-
-	// List DaemonSets
-	daemonSets := GetDaemonSets()
-	// Create a map of DaemonSet names to DaemonSet objects.
-	daemonSetsMap := map[string]appsv1.DaemonSet{}
-	for _, daemonSet := range daemonSets {
-		if reflect.ValueOf(daemonSet).IsValid() {
-
-			daemonSetsMap[daemonSet.Name] = daemonSet
-		}
-	}
-
-	// Iterate through the DaemonSets and check for the config map.
-	for daemonSetName, daemonSet := range daemonSetsMap {
-		for _, container := range daemonSet.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == secretName && !slices.Contains(relatedDaemonSets, daemonSetName) {
-						relatedDaemonSets = append(relatedDaemonSets, daemonSetName)
-					}
+	// Iterate through the workloads and check for the secret name.
+	for workloadName, workload := range workloadsMap {
+		for _, container := range workload.GetContainers() {
+			for _, env := range container.Env {
+				if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == secretName && !slices.Contains(relatedWorkloads, workloadName) {
+					relatedWorkloads = append(relatedWorkloads, workloadName)
 				}
 			}
 		}
-		for _, volume := range daemonSet.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.Secret != nil && volume.Secret.SecretName == secretName && !slices.Contains(relatedDaemonSets, daemonSetName) {
-				relatedDaemonSets = append(relatedDaemonSets, daemonSetName)
+		for _, volume := range workload.GetVolumes() {
+			if volume.Secret != nil && volume.Secret.SecretName == secretName && !slices.Contains(relatedWorkloads, workloadName) {
+				relatedWorkloads = append(relatedWorkloads, workloadName)
 			}
 		}
 	}
 
-	return relatedDaemonSets
+	return relatedWorkloads
 }
-func getSecretRelatedDeployments(secretName string) (relatedDeployments []string) {
 
-	// List Deployments
-	deployments := GetDeployments()
-	// Create a map of Deployment names to DaemonSet objects.
-	deploymentsMap := map[string]appsv1.Deployment{}
-	for _, deployment := range deployments {
-		if reflect.ValueOf(deployment).IsValid() {
-			deploymentsMap[deployment.Name] = deployment
-		}
+func SecretRelatedWorkloads(secretName string) (relatedWorkloads common.RelatedClusterServices) {
+	var pods []Workload
+	var daemonsets []Workload
+	var deployments []Workload
+	var statefulsets []Workload
+	for _, pod := range GetPods() {
+		pods = append(pods, Pod(pod))
 	}
-
-	// Iterate through the Deployments and check for the config map.
-	for deploymentName, deployment := range deploymentsMap {
-		for _, container := range deployment.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == secretName && !slices.Contains(relatedDeployments, deploymentName) {
-						relatedDeployments = append(relatedDeployments, deploymentName)
-					}
-				}
-			}
-		}
-		for _, volume := range deployment.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.Secret != nil && volume.Secret.SecretName == secretName && !slices.Contains(relatedDeployments, deploymentName) {
-				relatedDeployments = append(relatedDeployments, deploymentName)
-			}
-		}
+	for _, daemonset := range GetDaemonSets() {
+		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-
-	return relatedDeployments
-}
-func getSecretRelatedStatefulSets(secretName string) (relatedStatefulSets []string) {
-
-	// List StatefulSets
-	statefulSets := GetStatefulSets()
-	// Create a map of StatefulSet names to StatefulSet objects.
-	statefulSetsMap := map[string]appsv1.StatefulSet{}
-	for _, statefulSet := range statefulSets {
-		if reflect.ValueOf(statefulSet).IsValid() {
-
-			statefulSetsMap[statefulSet.Name] = statefulSet
-		}
+	for _, deployment := range GetDeployments() {
+		deployments = append(deployments, Deployment(deployment))
 	}
-
-	// Iterate through the StatefulSets and check for the config map.
-	for statefulSetName, statefulSet := range statefulSetsMap {
-		for _, container := range statefulSet.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.Name == secretName && !slices.Contains(relatedStatefulSets, statefulSetName) {
-						relatedStatefulSets = append(relatedStatefulSets, statefulSetName)
-					}
-				}
-			}
-		}
-		for _, volume := range statefulSet.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.Secret != nil && volume.Secret.SecretName == secretName && !slices.Contains(relatedStatefulSets, statefulSetName) {
-				relatedStatefulSets = append(relatedStatefulSets, statefulSetName)
-			}
-		}
+	for _, statefulset := range GetStatefulSets() {
+		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
-
-	return relatedStatefulSets
-}
-func GetSecretRelatedWorkloads(secretName string) (relatedWorkloads common.RelatedClusterServices) {
-
-	relatedDeployments := getSecretRelatedDeployments(secretName)
-	relatedDaemonsets := getSecretRelatedDaemonSets(secretName)
-	relatedStatefulSets := getSecretRelatedStatefulSets(secretName)
-	relatedPods := getSecretRelatedPods(secretName)
+	relatedPods := GetSecretRelatedWorkloads(secretName, pods)
+	relatedDaemonsets := GetSecretRelatedWorkloads(secretName, daemonsets)
+	relatedDeployments := GetSecretRelatedWorkloads(secretName, deployments)
+	relatedStatefulSets := GetSecretRelatedWorkloads(secretName, statefulsets)
+	// Similarly, call getRelatedWorkloads for other workload types...
 
 	relatedWorkloads = common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
 
 	return relatedWorkloads
 }
-
-// ConfigMap Kind
-func getConfigMapRelatedPods(configMapName string) (relatedPods []string) {
-
-	// List Pods
-	pods := GetPods()
-	// Create a map of Pods names to DaemonSet objects.
-	podsMap := map[string]corev1.Pod{}
-	for _, pod := range pods {
-		if reflect.ValueOf(pod).IsValid() {
-			podsMap[pod.Name] = pod
-		}
-	}
-
-	// Iterate through the Pods and check for the config map.
-	for podName, pod := range podsMap {
-		for _, container := range pod.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == configMapName && !slices.Contains(relatedPods, podName) {
-						relatedPods = append(relatedPods, podName)
+func GetConfigMapRelatedWorkloads(configMapName string, workloads []Workload) (relatedWorkloads []string) {
+	for _, workload := range workloads {
+		if reflect.ValueOf(workload).IsValid() {
+			for _, container := range workload.GetContainers() {
+				for _, env := range container.Env {
+					if env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == configMapName && !slices.Contains(relatedWorkloads, workload.GetName()) {
+						relatedWorkloads = append(relatedWorkloads, workload.GetName())
 					}
 				}
 			}
-
-		}
-		for _, volume := range pod.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && !slices.Contains(relatedPods, podName) {
-				if volume.ConfigMap != nil {
-					if volume.ConfigMap.Name == configMapName {
-						relatedPods = append(relatedPods, podName)
-					}
+			for _, volume := range workload.GetVolumes() {
+				if volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName && !slices.Contains(relatedWorkloads, workload.GetName()) {
+					relatedWorkloads = append(relatedWorkloads, workload.GetName())
 				}
-
 			}
 		}
 	}
-
-	return relatedPods
+	return relatedWorkloads
 }
-func getConfigMapRelatedDaemonSets(configMapName string) (relatedDaemonSets []string) {
 
-	// List DaemonSets
-	daemonSets := GetDaemonSets()
-	// Create a map of DaemonSet names to DaemonSet objects.
-	daemonSetsMap := map[string]appsv1.DaemonSet{}
-	for _, daemonSet := range daemonSets {
-		if reflect.ValueOf(daemonSet).IsValid() {
-
-			daemonSetsMap[daemonSet.Name] = daemonSet
-		}
+func ConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common.RelatedClusterServices) {
+	var pods []Workload
+	var daemonsets []Workload
+	var deployments []Workload
+	var statefulsets []Workload
+	for _, pod := range GetPods() {
+		pods = append(pods, Pod(pod))
 	}
-
-	// Iterate through the DaemonSets and check for the config map.
-	for daemonSetName, daemonSet := range daemonSetsMap {
-		for _, container := range daemonSet.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == configMapName && !slices.Contains(relatedDaemonSets, daemonSetName) {
-						relatedDaemonSets = append(relatedDaemonSets, daemonSetName)
-					}
-				}
-			}
-		}
-		for _, volume := range daemonSet.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName && !slices.Contains(relatedDaemonSets, daemonSetName) {
-				relatedDaemonSets = append(relatedDaemonSets, daemonSetName)
-			}
-		}
+	for _, daemonset := range GetDaemonSets() {
+		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-
-	return relatedDaemonSets
-}
-func getConfigMapRelatedDeployments(configMapName string) (relatedDeployments []string) {
-
-	// List Deployments
-	deployments := GetDeployments()
-	// Create a map of Deployment names to DaemonSet objects.
-	deploymentsMap := map[string]appsv1.Deployment{}
-	for _, deployment := range deployments {
-		if reflect.ValueOf(deployment).IsValid() {
-			deploymentsMap[deployment.Name] = deployment
-		}
+	for _, deployment := range GetDeployments() {
+		deployments = append(deployments, Deployment(deployment))
 	}
-
-	// Iterate through the Deployments and check for the config map.
-	for deploymentName, deployment := range deploymentsMap {
-		for _, container := range deployment.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == configMapName && !slices.Contains(relatedDeployments, deploymentName) {
-						relatedDeployments = append(relatedDeployments, deploymentName)
-					}
-				}
-			}
-		}
-		for _, volume := range deployment.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName && !slices.Contains(relatedDeployments, deploymentName) {
-				relatedDeployments = append(relatedDeployments, deploymentName)
-			}
-		}
+	for _, statefulset := range GetStatefulSets() {
+		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
-
-	return relatedDeployments
-}
-func getConfigMapRelatedStatefulSets(configMapName string) (relatedStatefulSets []string) {
-
-	// List StatefulSets
-	statefulSets := GetStatefulSets()
-	// Create a map of StatefulSet names to StatefulSet objects.
-	statefulSetsMap := map[string]appsv1.StatefulSet{}
-	for _, statefulSet := range statefulSets {
-		if reflect.ValueOf(statefulSet).IsValid() {
-
-			statefulSetsMap[statefulSet.Name] = statefulSet
-		}
-	}
-
-	// Iterate through the StatefulSets and check for the config map.
-	for statefulSetName, statefulSet := range statefulSetsMap {
-		for _, container := range statefulSet.Spec.Template.Spec.Containers {
-			containerEnv := container.Env
-			if containerEnv != nil {
-				for _, env := range containerEnv {
-					if reflect.ValueOf(env).IsValid() && env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil && env.ValueFrom.ConfigMapKeyRef.Name == configMapName && !slices.Contains(relatedStatefulSets, statefulSetName) {
-						relatedStatefulSets = append(relatedStatefulSets, statefulSetName)
-					}
-				}
-			}
-		}
-		for _, volume := range statefulSet.Spec.Template.Spec.Volumes {
-			if reflect.ValueOf(volume).IsValid() && volume.ConfigMap != nil && volume.ConfigMap.Name == configMapName && !slices.Contains(relatedStatefulSets, statefulSetName) {
-				relatedStatefulSets = append(relatedStatefulSets, statefulSetName)
-			}
-		}
-	}
-
-	return relatedStatefulSets
-}
-func GetConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common.RelatedClusterServices) {
-
-	relatedDeployments := getConfigMapRelatedDeployments(configMapName)
-	relatedDaemonsets := getConfigMapRelatedDaemonSets(configMapName)
-	relatedStatefulSets := getConfigMapRelatedStatefulSets(configMapName)
-	relatedPods := getConfigMapRelatedPods(configMapName)
+	relatedPods := GetConfigMapRelatedWorkloads(configMapName, pods)
+	relatedDaemonsets := GetConfigMapRelatedWorkloads(configMapName, daemonsets)
+	relatedDeployments := GetConfigMapRelatedWorkloads(configMapName, deployments)
+	relatedStatefulSets := GetConfigMapRelatedWorkloads(configMapName, statefulsets)
 
 	relatedWorkloads = common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
 
@@ -311,100 +111,37 @@ func GetConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common
 }
 
 // ServiceAccount Kind
-func getServiceAccountRelatedPods(serviceAccountName string) (relatedPods []string) {
 
-	// List Pods
-	pods := GetPods()
-	// Create a map of Pods names to DaemonSet objects.
-	podsMap := map[string]corev1.Pod{}
-	for _, pod := range pods {
-		if reflect.ValueOf(pod).IsValid() {
-			podsMap[pod.Name] = pod
+func GetServiceAccountRelatedWorkloads(serviceAccountName string, workloads []Workload) (relatedWorkloads []string) {
+	for _, workload := range workloads {
+		if reflect.ValueOf(workload).IsValid() && (workload.GetServiceAccountName() == serviceAccountName || workload.GetServiceAccountName() == serviceAccountName) {
+			relatedWorkloads = append(relatedWorkloads, workload.GetName())
 		}
 	}
-
-	// Iterate through the Pods and check for the config map.
-	for podName, pod := range podsMap {
-		if pod.Spec.ServiceAccountName == serviceAccountName || pod.Spec.DeprecatedServiceAccount == serviceAccountName {
-			relatedPods = append(relatedPods, podName)
-		}
-	}
-
-	return relatedPods
+	return relatedWorkloads
 }
-func getServiceAccountRelatedDaemonSets(serviceAccountName string) (relatedDaemonSets []string) {
 
-	// List DaemonSets
-	daemonSets := GetDaemonSets()
-	// Create a map of DaemonSet names to DaemonSet objects.
-	daemonSetsMap := map[string]appsv1.DaemonSet{}
-	for _, daemonSet := range daemonSets {
-		if reflect.ValueOf(daemonSet).IsValid() {
-
-			daemonSetsMap[daemonSet.Name] = daemonSet
-		}
+func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
+	var pods []Workload
+	var daemonsets []Workload
+	var deployments []Workload
+	var statefulsets []Workload
+	for _, pod := range GetPods() {
+		pods = append(pods, Pod(pod))
 	}
-
-	// Iterate through the DaemonSets and check for the config map.
-	for daemonSetName, daemonSet := range daemonSetsMap {
-		if daemonSet.Spec.Template.Spec.ServiceAccountName == serviceAccountName || daemonSet.Spec.Template.Spec.DeprecatedServiceAccount == serviceAccountName {
-			relatedDaemonSets = append(relatedDaemonSets, daemonSetName)
-		}
-
+	for _, daemonset := range GetDaemonSets() {
+		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-
-	return relatedDaemonSets
-}
-func getServiceAccountRelatedDeployments(serviceAccountName string) (relatedDeployments []string) {
-
-	// List Deployments
-	deployments := GetDeployments()
-	// Create a map of Deployment names to DaemonSet objects.
-	deploymentsMap := map[string]appsv1.Deployment{}
-	for _, deployment := range deployments {
-		if reflect.ValueOf(deployment).IsValid() {
-			deploymentsMap[deployment.Name] = deployment
-		}
+	for _, deployment := range GetDeployments() {
+		deployments = append(deployments, Deployment(deployment))
 	}
-
-	// Iterate through the Deployments and check for the config map.
-	for deploymentName, deployment := range deploymentsMap {
-		if deployment.Spec.Template.Spec.ServiceAccountName == serviceAccountName || deployment.Spec.Template.Spec.DeprecatedServiceAccount == serviceAccountName {
-
-			relatedDeployments = append(relatedDeployments, deploymentName)
-		}
+	for _, statefulset := range GetStatefulSets() {
+		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
-
-	return relatedDeployments
-}
-func getServiceAccountRelatedStatefulSets(serviceAccountName string) (relatedStatefulSets []string) {
-
-	// List StatefulSets
-	statefulSets := GetStatefulSets()
-	// Create a map of StatefulSet names to StatefulSet objects.
-	statefulSetsMap := map[string]appsv1.StatefulSet{}
-	for _, statefulSet := range statefulSets {
-		if reflect.ValueOf(statefulSet).IsValid() {
-
-			statefulSetsMap[statefulSet.Name] = statefulSet
-		}
-	}
-
-	// Iterate through the StatefulSets and check for the config map.
-	for statefulSetName, statefulSet := range statefulSetsMap {
-		if statefulSet.Spec.Template.Spec.ServiceAccountName == serviceAccountName || statefulSet.Spec.Template.Spec.DeprecatedServiceAccount == serviceAccountName {
-
-			relatedStatefulSets = append(relatedStatefulSets, statefulSetName)
-		}
-	}
-
-	return relatedStatefulSets
-}
-func GetServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
-	relatedDeployments := getServiceAccountRelatedDeployments(serviceAccountName)
-	relatedDaemonsets := getServiceAccountRelatedDaemonSets(serviceAccountName)
-	relatedStatefulSets := getServiceAccountRelatedStatefulSets(serviceAccountName)
-	relatedPods := getServiceAccountRelatedPods(serviceAccountName)
+	relatedPods := GetServiceAccountRelatedWorkloads(serviceAccountName, pods)
+	relatedDaemonsets := GetServiceAccountRelatedWorkloads(serviceAccountName, daemonsets)
+	relatedDeployments := GetServiceAccountRelatedWorkloads(serviceAccountName, deployments)
+	relatedStatefulSets := GetServiceAccountRelatedWorkloads(serviceAccountName, statefulsets)
 
 	relatedWorkloads = common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
 
@@ -413,7 +150,7 @@ func GetServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorklo
 
 // ClusterRoleBinding Kind
 
-func GetClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedWorkloads common.RelatedClusterServices) {
+func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedWorkloads common.RelatedClusterServices) {
 	//
 	clusterRoleBinding := GetClusterRoleBinding(clusterRoleBindingName)
 
@@ -422,7 +159,7 @@ func GetClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relat
 		for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
 			if clusterRoleBindingSubject.Kind == "ServiceAccount" {
 				serviceAccountName := clusterRoleBindingSubject.Name
-				relatedWorkloads = GetServiceAccountRelatedWorkloads(serviceAccountName)
+				relatedWorkloads = ServiceAccountRelatedWorkloads(serviceAccountName)
 			}
 		}
 
@@ -433,7 +170,7 @@ func GetClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relat
 
 // ClusterRole Kind
 
-func GetClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads common.RelatedClusterServices) {
+func ClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads common.RelatedClusterServices) {
 
 	clusterRoleBindings := GetClusterRoleBindings()
 
@@ -443,7 +180,7 @@ func GetClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads co
 			for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
 				if clusterRoleBindingSubject.Kind == "ServiceAccount" {
 					serviceAccountName := clusterRoleBindingSubject.Name
-					relatedWorkloads = GetServiceAccountRelatedWorkloads(serviceAccountName)
+					relatedWorkloads = ServiceAccountRelatedWorkloads(serviceAccountName)
 				}
 			}
 

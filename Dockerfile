@@ -9,5 +9,4 @@ RUN go build -o main .
 
 FROM alpine:3.14
 COPY --from=build /app/main /app/main
-
 CMD ["/app/main"]
