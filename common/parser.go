@@ -1,17 +1,20 @@
 package common
 
 import (
-	"crypto/md5"
-	"encoding/json"
-	"fmt"
-	"k8s.io/utils/strings/slices"
-	"log"
-	"reflect"
-	"strings"
+	"crypto/md5"                                        // For hashing sensitive data
+	"encoding/json"                                     // For marshalling and unmarshalling JSON
+	"fmt"                                               // For formatting strings
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured" // For handling unstructured data
+	"k8s.io/utils/strings/slices"                       // For string slicing
+	"log"                                               // For logging errors
+	"reflect"                                           // For handling reflection
+	"strings"                                           // For string operations
 )
 
+// Struct types for various Kubernetes event and metadata
 var eventKind string
 
+// Struct types for various Kubernetes event and metadata
 type KubernetesMetadata struct {
 	Name            string `json:"name,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
@@ -20,18 +23,21 @@ type KubernetesMetadata struct {
 type KubernetesEvent struct {
 	Kind               string `json:"kind,omitempty"`
 	KubernetesMetadata `json:"metadata,omitempty"`
+	ResourceObjects
 }
-type EventStruct struct {
-	EventType string                 `json:"eventType,omitempty"`
+type ResourceObjects struct {
 	NewObject map[string]interface{} `json:"newObject,omitempty"`
 	OldObject map[string]interface{} `json:"oldObject,omitempty"`
+}
+type EventStruct struct {
+	EventType string `json:"eventType,omitempty"`
+	KubernetesEvent
 }
 type LogEvent struct {
 	Message                string `json:"message,omitempty"`
 	EventStruct            `json:",omitempty"`
-	Type                   string                 `json:"type,omitempty"`
-	EnvironmentID          string                 `json:"env_id,omitempty"`
-	Log                    map[string]interface{} `json:"log,omitempty"`
+	Type                   string `json:"type,omitempty"`
+	EnvironmentID          string `json:"env_id,omitempty"`
 	RelatedClusterServices `json:"relatedClusterServices,omitempty"`
 }
 
@@ -47,7 +53,8 @@ type RelatedClusterServices struct {
 	ClusterRoleBindings []string `json:"clusterrolebindings,omitempty"`
 }
 
-func isValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArray bool) {
+// IsValidList Function to check if an array is valid
+func IsValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArray bool) {
 	// Logz.io doesn't support nested array objects well as they contain different data types
 	for _, v := range arrayFieldI {
 		_, isMap := v.(map[string]interface{})
@@ -58,7 +65,9 @@ func isValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArr
 	return arrayFieldI, isValidArray
 }
 
+// ParseEventMessage Function to parse event messages
 func ParseEventMessage(eventType string, resourceName string, resourceKind string, resourceNamespace string, newResourceVersion string, oldResourceVersions ...string) (msg string) {
+
 	if eventType == "MODIFIED" {
 		if len(oldResourceVersions) > 0 {
 			oldResourceVersion := oldResourceVersions[0]
@@ -75,28 +84,31 @@ func ParseEventMessage(eventType string, resourceName string, resourceKind strin
 	return msg
 }
 
-func formatFieldName(field string) (fieldName string) {
+// FormatFieldName Function to format field name
+func FormatFieldName(field string) (fieldName string) {
 	fieldName = field
 	// Check if the field contains a dot/slash/hyphen and replace it with underscore
 	if strings.ContainsAny(field, "/.-") {
-		fieldName = strings.Replace(field, ".", "_", -1)
-		fieldName = strings.Replace(fieldName, "/", "_", -1)
-		fieldName = strings.Replace(fieldName, "-", "_", -1)
+		fieldName = strings.ReplaceAll(fieldName, ".", "_")
+		fieldName = strings.ReplaceAll(fieldName, "/", "_")
+		fieldName = strings.ReplaceAll(fieldName, "-", "_")
 	}
 	return fieldName
 }
-func formatFieldValue(value interface{}) (fieldValue interface{}) {
+
+// FormatFieldValue Function to format field value
+func FormatFieldValue(value interface{}) (fieldValue interface{}) {
 	fieldValue = value
 	// Check if the field value is an array and parse it to a string
 	arrayFieldI, ok := value.([]interface{})
 
 	if ok {
 
-		_, isValidArray := isValidList(arrayFieldI)
+		_, isValidArray := IsValidList(arrayFieldI)
 		if !isValidArray {
 			arrayNestedField, err := json.Marshal(arrayFieldI)
 			if err != nil {
-				log.Printf("\n[ERROR] Failed to parse array nested field. %s\nERROR:\n%v", err)
+				log.Printf("\n[ERROR] Failed to parse array nested field: %s\nERROR:\n%v", arrayNestedField, err)
 			}
 			// Flatten the array nested field
 			fieldValue = string(arrayNestedField)
@@ -106,7 +118,9 @@ func formatFieldValue(value interface{}) (fieldValue interface{}) {
 
 	return fieldValue
 }
-func formatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLimit string, truncatedFieldValue interface{}) {
+
+// FormatFieldOverLimit Function to format field over limit
+func FormatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLimit string, truncatedFieldValue interface{}) {
 	fieldOverLimit = fieldName
 	truncatedFieldValue = fieldValue
 	var valueLengthLimit = 32700
@@ -122,26 +136,47 @@ func formatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLi
 	return fieldOverLimit, truncatedFieldValue
 
 }
+
+// IsEmptyMap Function to check if the map is empty
+func IsEmptyMap(value interface{}) bool {
+	isEmpty := false
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Map && v.Len() == 0 {
+		isEmpty = true
+	}
+	return isEmpty
+}
+
+// Function to parse logz.io limits
 func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[string]interface{}) {
 
 	// Declare variables
 
 	// Iterate over the log
 	parsedLogEvent = eventLog
-	eventI := eventLog["newObject"]
-	if eventI != nil {
-		eventKind = eventI.(map[string]interface{})["kind"].(string)
+
+	if eventLog["newObject"] != nil {
+		eventI := eventLog["newObject"].(map[string]interface{})
+		if eventI["kind"] != nil {
+			eventKind = eventI["kind"].(string)
+		}
 	}
 	for field, value := range eventLog {
-		// Check if the field contains a dot
-		fieldName := formatFieldName(field)
+		// Check if the field contains a dot/slash/hyphen and replace it with underscore
+		// Check if the field is empty
+
+		if !reflect.ValueOf(value).IsValid() || value == nil || IsEmptyMap(value) {
+			// Remove the empty or invalid/nil/struct{} field from the log
+			delete(parsedLogEvent, field)
+		}
+		fieldName := FormatFieldName(field)
 		if fieldName != field {
 			// Rename the field
 			parsedLogEvent[fieldName] = value
 			// Remove the original field
 			delete(parsedLogEvent, field)
 		}
-		maskedField, maskedValue := maskSensitiveData(eventKind, fieldName, value)
+		maskedField, maskedValue := MaskSensitiveData(eventKind, fieldName, value)
 		if !reflect.DeepEqual(value, maskedValue) {
 			parsedLogEvent[maskedField] = maskedValue
 			delete(parsedLogEvent, fieldName)
@@ -153,20 +188,15 @@ func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[stri
 		if ok {
 			parseLogzioLimits(nestedField)
 		} else {
+			{
 
-			// Check if the field is empty
-			if !reflect.ValueOf(value).IsValid() || value == nil || value == struct{}{} {
-				// Remove the empty or invalid/nil/struct{} field from the log
-				delete(parsedLogEvent, fieldName)
-			} else {
-
-				fieldValue := formatFieldValue(value)
+				fieldValue := FormatFieldValue(value)
 				if !reflect.DeepEqual(value, fieldValue) {
 					// Add the field value to the parsed log
 					parsedLogEvent[fieldName] = fieldValue
 				}
 
-				fieldOverLimit, truncatedFieldValue := formatFieldOverLimit(fieldName, fieldValue)
+				fieldOverLimit, truncatedFieldValue := FormatFieldOverLimit(fieldName, fieldValue)
 				if fieldOverLimit != fieldName {
 					parsedLogEvent[fieldOverLimit] = truncatedFieldValue
 					delete(parsedLogEvent, fieldName)
@@ -180,6 +210,15 @@ func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[stri
 
 	return parsedLogEvent
 }
+
+// NewUnstructured Function to create new unstructured data
+func NewUnstructured(rawObj map[string]interface{}) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: rawObj,
+	}
+}
+
+// Function to hash data
 func hashData(data interface{}) (hashedData string) {
 	// Create a new MD5 hash object
 	hash := md5.New()
@@ -195,16 +234,23 @@ func hashData(data interface{}) (hashedData string) {
 
 	return hashedData
 }
-func maskSensitiveData(eventKind string, fieldName string, fieldValue interface{}) (maskedField string, maskedValue interface{}) {
-	maskedValue = fieldValue
-	maskedField = fieldName
+
+// MaskSensitiveData Function to mask sensitive data
+func MaskSensitiveData(eventKind string, fieldName string, fieldValue interface{}) (maskedField string, maskedValue interface{}) {
+	maskedValue = fieldValue // Initialize maskedValue to original fieldValue
+	maskedField = fieldName  // Initialize maskedField to original fieldName
+
+	// Array of field names to consider sensitive
 	fieldsToMask := []string{"password", "secret", "token", "key", "access_token", "api_key", "api_secret", "api_token", "api_key_id", "api_secret_id", "api_token_id", "api_key_secret", "api_secret_key", "api_token_secret"}
+
+	// Check if the field name is in the list of fields to mask, or has "_crt" in it, or is a secret data or last applied configuration
 	if slices.Contains(fieldsToMask, fieldName) || strings.Contains(fieldName, "_crt") || (eventKind == "Secret" && (fieldName == "data" || fieldName == "kubectl_kubernetes_io_last_applied_configuration")) {
-		// Mask the field from the log
+		// If the field is sensitive, mask the field value by hashing it
 		stringValue := fmt.Sprintf("%v", fieldValue)
 		maskedValue = hashData(stringValue)
-		maskedField = fmt.Sprintf("%s_hashed", fieldName)
-
+		maskedField = fmt.Sprintf("%s_hashed", fieldName) // Append "_hashed" to the field name
 	}
+
+	// Return the masked field name and value
 	return maskedField, maskedValue
 }

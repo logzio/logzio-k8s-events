@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,99 +15,126 @@ import (
 	"main.go/common"
 	"os"
 	"os/signal"
-	"reflect"
 	"sync"
 )
 
-func createResourceInformer(resourceGroup string, resourceType string, clusterClient *dynamic.DynamicClient) (informer cache.SharedIndexInformer) {
-	//
-	resource := schema.GroupVersionResource{Group: resourceGroup, Version: "v1", Resource: resourceType}
-	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(clusterClient, 0, corev1.NamespaceAll, nil)
-	informer = factory.ForResource(resource).Informer()
+var wg sync.WaitGroup
 
-	return informer
+func createResourceInformer(resourceGVR schema.GroupVersionResource, clusterClient *dynamic.DynamicClient) (resourceInformer cache.SharedIndexInformer) {
+	// Creates a Kubernetes dynamic informer for the cluster API resources
+	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(clusterClient, 0, corev1.NamespaceAll, nil)
+	resourceInformer = factory.ForResource(resourceGVR).Informer()
+
+	if resourceInformer == nil {
+		common.SendLog(fmt.Sprintf("Failed to create informer for resource GVR: '%v'", resourceGVR))
+		return nil
+	}
+	// Creates a Kubernetes dynamic informer for the cluster API resources
+	// Get a lister for the resource, which is part of the informer
+	lister := factory.ForResource(resourceGVR).Lister()
+
+	// If the lister is nil, informer creation likely failed
+	if lister == nil {
+		common.SendLog(fmt.Sprintf("Failed to create informer for resource GVR: '%v'", resourceGVR))
+		return nil
+	}
+
+	return resourceInformer
 }
 
-func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
-	var event map[string]interface{}
-	synced := false
+// AddInformerEventHandler adds a new event handler to a given resource informer.
+// It logs events when a resource is added, updated, or deleted.
+func AddInformerEventHandler(resourceInformer cache.SharedIndexInformer) (synced bool) {
+	var parsedEventLog []byte
+	// Check if the resource informer is nil
+	if resourceInformer == nil {
+		log.Println("[ERROR] Resource informer is nil")
+		return false
+	}
+
+	// Create a new mutex for handling read and write locks
 	mux := &sync.RWMutex{}
+
+	// Add event handler to the resource informer
 	_, err := resourceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		// This function gets called when a resource gets added
 		AddFunc: func(obj interface{}) {
 			mux.RLock()
 			defer mux.RUnlock()
-			if !synced {
-				return
+			if synced {
+				_, parsedEventLog = StructResourceLog(map[string]interface{}{
+					"eventType": "ADDED",
+					"newObject": obj,
+				})
 			}
-			// Handler logic
-
-			event = map[string]interface{}{
-				"newObject": obj,
-				"eventType": "ADDED",
-			}
-			go resourceInformerLog(event)
-
 		},
+		// This function gets called when a resource gets updated
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			mux.RLock()
 			defer mux.RUnlock()
-			if !synced {
-				return
+			if synced {
+				_, parsedEventLog = StructResourceLog(map[string]interface{}{
+					"eventType": "MODIFIED",
+					"newObject": newObj,
+					"oldObject": oldObj,
+				})
 			}
-			// Handler logic
-
-			event = map[string]interface{}{
-				"oldObject": oldObj,
-				"newObject": newObj,
-				"eventType": "MODIFIED",
-			}
-			go resourceInformerLog(event)
-
 		},
+		// This function gets called when a resource gets deleted
 		DeleteFunc: func(obj interface{}) {
 			mux.RLock()
 			defer mux.RUnlock()
-			if !synced {
-				return
+			if synced {
+				_, parsedEventLog = StructResourceLog(map[string]interface{}{
+					"eventType": "DELETED",
+					"newObject": obj,
+				})
 			}
-
-			// Handler logic
-
-			event = map[string]interface{}{
-				"newObject": obj,
-				"eventType": "DELETED",
-			}
-			go resourceInformerLog(event)
-
 		},
 	})
 
+	// Log any errors in adding the event handler
 	if err != nil {
-		msg := fmt.Sprintf("[ERROR] Failed to add event handler for informer.\nERROR:\n%v", err)
-		common.SendLog(msg)
-
+		common.SendLog(fmt.Sprintf("[ERROR] Failed to add event handler for informer.\nERROR:\n%v", err))
 		return
 	}
-
+	common.SendLog(string(parsedEventLog))
+	// Create a new context that will get cancelled when an interrupt signal is received
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	go resourceInformer.Run(ctx.Done())
+	// Create a channel to indicate when the informer has started
+	started := make(chan bool)
 
-	isSynced := cache.WaitForCacheSync(ctx.Done(), resourceInformer.HasSynced)
+	// Run the informer in a separate goroutine
+	go func() {
+		resourceInformer.Run(ctx.Done())
+		close(started)
+	}()
+
+	// Wait for the informer to start
+	<-started
+
+	// Wait for the informer's cache to sync
 	mux.Lock()
-	synced = isSynced
+	synced = cache.WaitForCacheSync(ctx.Done(), resourceInformer.HasSynced)
 	mux.Unlock()
 
-	if !isSynced {
-		log.Fatal("Informer event handler failed to sync.")
+	// Log if the informer failed to sync
+	if !synced {
+		log.Printf("Informer event handler failed to sync.")
 	}
 
+	// Wait for the context to be done
 	<-ctx.Done()
 
-}
-func AddEventHandlers() {
+	// Return whether the informer's cache was synced successfully
+	return synced
 
+}
+
+func AddEventHandlers() {
+	// Creates informer for each cluster API and events handler for each informer
 	resourceAPIList := map[string]string{
 		"configmaps":          "",
 		"deployments":         "apps",
@@ -119,80 +147,157 @@ func AddEventHandlers() {
 	}
 	var eventHandlerSync sync.WaitGroup
 	resourceIndex := 0
+	routinesLimit := make(chan bool, len(resourceAPIList)) // limit to number of concurrent goroutines to list resources
+
 	for resourceType, resourceGroup := range resourceAPIList {
+		routinesLimit <- true //  will block if there is already goroutines running for the limit number of resources
 		resourceIndex = resourceIndex + 1
-
+		resourceGVR := schema.GroupVersionResource{Group: resourceGroup, Version: "v1", Resource: resourceType}
 		resourceAPI := fmt.Sprintf("%s/v1/%s", resourceGroup, resourceType)
-
-		common.SendLog(fmt.Sprintf("Attempting to create informer for resource API: '%s'", resourceAPI))
-		resourceInformer := createResourceInformer(resourceGroup, resourceType, common.DynamicClient)
-		if resourceInformer != nil {
-			common.SendLog(fmt.Sprintf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI))
-			eventHandlerSync.Add(resourceIndex)
-			go addInformerEventHandler(resourceInformer)
-			{
-				defer eventHandlerSync.Done()
-				common.SendLog(fmt.Sprintf("Finished adding event handler to informer for resource API: '%s'", resourceAPI))
-			}
-		} else {
+		resourceInformer := createResourceInformer(resourceGVR, common.DynamicClient)
+		if resourceInformer == nil {
 			common.SendLog(fmt.Sprintf("Failed to create informer for resource API: '%s'", resourceAPI))
+			<-routinesLimit // release a slot when the informer is nil
+			continue        // Skip to next iteration if informer is nil
 		}
-	}
+		common.SendLog(fmt.Sprintf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI))
+		eventHandlerSync.Add(1)
+		go func(resourceInformer cache.SharedIndexInformer, resourceAPI string) {
+			// Use defer to ensure Done() is called even if the goroutine exits prematurely
+			defer eventHandlerSync.Done()
 
+			// Log when the goroutine starts
+			common.SendLog(fmt.Sprintf("Adding event handler for resource API: '%s'", resourceAPI))
+
+			AddInformerEventHandler(resourceInformer)
+
+			// Log when the goroutine finishes
+			common.SendLog(fmt.Sprintf("Finished adding event handler to informer for resource API: '%s'", resourceAPI))
+			<-routinesLimit // release a slot when the goroutine finishes
+
+		}(resourceInformer, resourceAPI) // Pass the loop variables here
+	}
 	eventHandlerSync.Wait()
 }
 
-func resourceInformerLog(event map[string]interface{}) {
-	var msg string
-	if reflect.ValueOf(event).IsValid() {
-		logEvent := &common.LogEvent{}
-		jsonString, _ := json.Marshal(event)
-		json.Unmarshal(jsonString, logEvent)
-		eventType := event["eventType"].(string)
-		newRawObjUnstructured := &unstructured.Unstructured{}
-		newRawObjUnstructured.Object = logEvent.NewObject
-		newResourceObj := common.KubernetesEvent{}
-		unstructuredObjectJSON, err := newRawObjUnstructured.MarshalJSON()
-		if err != nil {
-			fmt.Println(err)
-		}
-		json.Unmarshal(unstructuredObjectJSON, &newResourceObj)
-		if err != nil {
-			log.Printf("[ERROR] Failed to parse resource event logs.\nERROR:\n%v", err)
-		} else {
-			resourceKind := newResourceObj.Kind
-			resourceName := newResourceObj.KubernetesMetadata.Name
-			resourceNamespace := newResourceObj.KubernetesMetadata.Namespace
-			newResourceVersion := newResourceObj.KubernetesMetadata.ResourceVersion
-			msg = common.ParseEventMessage(eventType, resourceName, resourceKind, resourceNamespace, newResourceVersion)
-			if eventType == "MODIFIED" {
-				oldRawObjUnstructured := &unstructured.Unstructured{}
-				oldRawObjUnstructured.Object = logEvent.OldObject
-				oldResourceObj := common.KubernetesEvent{}
-				unstructuredObjectJSON, err = oldRawObjUnstructured.MarshalJSON()
-				if err != nil {
-					fmt.Println(err)
-				}
-				json.Unmarshal(unstructuredObjectJSON, &oldResourceObj)
-				if err == nil {
-					oldResourceName := oldResourceObj.KubernetesMetadata.Name
-					oldResourceNamespace := oldResourceObj.KubernetesMetadata.Namespace
-					oldResourceVersion := oldResourceObj.KubernetesMetadata.ResourceVersion
-					msg = common.ParseEventMessage(eventType, oldResourceName, resourceKind, oldResourceNamespace, newResourceVersion, oldResourceVersion)
-				}
-			}
-			clusterRelatedResources := GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
+// EventObject transforms a raw object into a KubernetesEvent object.
+// It takes a map representing the raw object and a boolean indicating whether the object is new or n
+// ot.
+func EventObject(rawObj map[string]interface{}, isNew bool) (resourceObject common.KubernetesEvent) {
 
-			if reflect.ValueOf(clusterRelatedResources).IsValid() {
-				event["relatedClusterServices"] = clusterRelatedResources
-			}
-		}
-		marshaledEvent, err := json.Marshal(event)
-		if err != nil {
-			log.Printf("[ERROR] Failed to marshel resource event logs.\nERROR:\n%v", err)
-		}
-		common.SendLog(msg, marshaledEvent)
-
+	// Check if the raw object or its "newObject" and "oldObject" fields are nil
+	// Check if the raw object is nil
+	if rawObj == nil {
+		log.Println("[ERROR] rawObj is nil.")
+		// Return an empty KubernetesEvent object if the raw object is invalid
+		return resourceObject
 	}
 
+	// Check if the newObject field of rawObj is nil, if it is required
+	if isNew && rawObj["newObject"] == nil {
+		log.Println("[ERROR] rawObj does not have required field: newObject.")
+		// Return an empty KubernetesEvent object if the raw object is invalid
+		return resourceObject
+	}
+
+	// Check if the oldObject field of rawObj is nil, if it is required
+	if !isNew && rawObj["oldObject"] == nil {
+		log.Println("[ERROR] rawObj does not have required field: oldObject.")
+		// Return an empty KubernetesEvent object if the raw object is invalid
+		return resourceObject
+	}
+
+	// Initialize an empty unstructured object
+	rawUnstructuredObj := unstructured.Unstructured{}
+	// Initialize a buffer to store the JSON-encoded raw object
+	var buffer bytes.Buffer
+	// Encode the raw object into JSON and write it to the buffer
+	json.NewEncoder(&buffer).Encode(rawObj)
+
+	// Unmarshal the JSON-encoded raw object into a KubernetesEvent object
+	err := json.Unmarshal(buffer.Bytes(), &resourceObject)
+	if err != nil {
+		log.Printf("Failed to unmarshal resource object:\n%v\nError:\n%v", rawObj, err)
+	} else {
+		// If unmarshalling is successful, determine whether to set the unstructured object's content based on the "isNew" flag
+		if isNew {
+			// If the object is new, set the unstructured object's content to the new object's content
+			rawUnstructuredObj.Object = resourceObject.NewObject
+		} else {
+			// If the object is not new, set the unstructured object's content to the old object's content
+			rawUnstructuredObj.Object = resourceObject.OldObject
+		}
+	}
+	// Return the KubernetesEvent object
+	return resourceObject
+}
+
+// StructResourceLog receives an event and logs it in a structured format.
+func StructResourceLog(event map[string]interface{}) (isStructured bool, marshaledEvent []byte) {
+
+	// Check if event is nil
+	if event == nil {
+		log.Println("[ERROR] Event is nil")
+		return false, nil
+	}
+
+	// Assert that event["eventType"] is a string
+	eventType, ok := event["eventType"].(string)
+	if !ok {
+		log.Println("[ERROR] eventType is not a string")
+		return false, nil
+	}
+
+	// Initialize an empty LogEvent
+	logEvent := &common.LogEvent{}
+
+	// Marshal the event to a string
+	eventStr, _ := json.Marshal(event)
+
+	// Unmarshal the string back to a logEvent
+	err := json.Unmarshal(eventStr, logEvent)
+	if err != nil {
+
+		return false, nil
+	}
+
+	// Get the new event object
+	newEventObj := EventObject(logEvent.NewObject, true)
+
+	// Get the resource details from the new event object
+	resourceKind := newEventObj.Kind
+	resourceName := newEventObj.KubernetesMetadata.Name
+	resourceNamespace := newEventObj.KubernetesMetadata.Namespace
+	newResourceVersion := newEventObj.ResourceVersion
+
+	var msg string
+	// If event is a modification event, get the old event object and parse the event message accordingly
+	if eventType == "MODIFIED" {
+		oldEventObj := EventObject(logEvent.OldObject, false)
+		oldResourceName := oldEventObj.KubernetesMetadata.Name
+		oldResourceNamespace := oldEventObj.KubernetesMetadata.Namespace
+		oldResourceVersion := oldEventObj.KubernetesMetadata.ResourceVersion
+		msg = common.ParseEventMessage(eventType, oldResourceName, resourceKind, oldResourceNamespace, newResourceVersion, oldResourceVersion)
+	} else {
+		// If event is not a modification event, parse the event message with only the new event object
+		msg = common.ParseEventMessage(eventType, resourceName, resourceKind, resourceNamespace, newResourceVersion)
+	}
+
+	// Get the related cluster services for the resource
+	event["relatedClusterServices"] = GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
+	event["message"] = msg
+
+	// Marshal the event to a string
+	marshaledEvent, err = json.Marshal(event)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshel resource event logs.\nERROR:\n%v", err)
+	}
+
+	// Mark the goroutine as done
+	defer wg.Done()
+
+	// Return true indicating the log is structured
+	isStructured = true
+
+	return isStructured, marshaledEvent
 }

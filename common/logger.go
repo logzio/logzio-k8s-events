@@ -3,23 +3,28 @@ package common
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/logzio/logzio-go"
+	"github.com/logzio/logzio-go" // Importing logz.io library for logging
 	"log"
 	"os"
+	"sync"
 	"time"
 )
 
-var LogzioLogger *logzio.LogzioSender
+var LogzioLogger *logzio.LogzioSender // Global variable for logz.io logger
+var wg sync.WaitGroup                 // Global variable for wait group
 
-func ConfigureLogzioLogger() (LogzioLogger *logzio.LogzioSender) {
-	// Creates a resources using Logz.io output configuration: https://app.logz.io/#/dashboard/send-your-data/log-sources/go
+func ConfigureLogzioLogger() {
+	// Function to configure logz.io logger
 	var err error
-	LogzioToken := os.Getenv("LOGZIO_TOKEN") // Log shipping token for Logz.io
+
+	// Reading logz.io token from environment variables
+	LogzioToken := os.Getenv("LOGZIO_TOKEN")
 	if LogzioToken != "" {
 		LogzioListener := os.Getenv("LOGZIO_LISTENER")
 		if LogzioListener == "" {
 			LogzioListener = "https://listener.logz.io:8071" // Defaults to us-east-1 region
 		}
+		// Creating a new logz.io logger with specified configuration
 		LogzioLogger, err = logzio.New(
 			LogzioToken,
 			logzio.SetDebug(os.Stderr),
@@ -29,58 +34,95 @@ func ConfigureLogzioLogger() (LogzioLogger *logzio.LogzioSender) {
 			logzio.SetDrainDiskThreshold(99),
 		)
 		if err != nil {
+			// If there is an error in creating the logger, log the error and exit
 			log.Fatalf("\n[FATAL] Failed to configure the Logz.io resources.\nERROR: %v\n", err)
 		}
 	} else {
-		log.Fatalf("\n[FATAL] Invalid token configured for LOGZIO_TOKEN environemt variable.\n")
+		// If LOGZIO_TOKEN is not set, log error and exit
+		log.Fatalf("\n[FATAL] Invalid token configured for LOGZIO_TOKEN environment variable.\n")
 	}
-	return LogzioLogger
 }
-func shipLogMessage(message string) {
+func shipLogEvent(eventLog string) {
+	// Function to ship log event to logz.io
 
-	log.Printf("\n[LOG]: %s\n", message)
-	err := LogzioLogger.Send([]byte(message))
+	// Logging the event
+	log.Printf("\n[LOG]: %s\n", eventLog)
+	err := LogzioLogger.Send([]byte(eventLog)) // Sending the log event to logz.io
 	if err != nil {
-		log.Printf("\nFailed to send log:\n%v to Logz.io.\nRelated error:\n%v.", message, err)
+		// If there is an error in sending the log, log the error
+		log.Printf("\nFailed to send log:\n%v to Logz.io.\nRelated error:\n%v.", eventLog, err)
 		return
 	}
 
-	LogzioLogger.Drain()
+	LogzioLogger.Drain() // Draining the logger
+	defer wg.Done()      // Signaling that this function is done
 }
-func SendLog(msg string, extraFields ...interface{}) {
+func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
+	// This function parses an event log message and any extra fields,
+	// converting them into a JSON string.
+
 	var err error
 	var parsedEventLog []byte
 	var logMap map[string]interface{}
+
+	// Reading environment variables
 	environmentID := os.Getenv("ENV_ID")
 	logType := os.Getenv("LOG_TYPE")
+
 	if logType == "" {
-		logType = "logzio-informer-events"
+		logType = "logzio-k8s-events" // Default log type
 	}
+
+	// Creating a new log event with the provided message, type and environment ID
 	logEvent := LogEvent{Message: msg, Type: logType, EnvironmentID: environmentID}
 
 	if len(extraFields) > 0 {
+		// If there are extra fields, convert them to a JSON string and unmarshal into logEvent
 		extra := fmt.Sprintf("%s", extraFields...)
 
-		log.Printf("\n[DEBUG] Attemping to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\n", extra, extra, logEvent, logEvent)
-
-		if err := json.Unmarshal([]byte(extra), &logEvent); err != nil && extra != "" {
-			log.Printf("\n[ERROR] Failed to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\nRelated error:\n%v", extra, logEvent, extra, logEvent, err)
+		if err = json.Unmarshal([]byte(extra), &logEvent); err != nil && extra != "" && extra != "[]" {
+			// If there is an error in parsing the extra fields, log the error
+			log.Printf("\n[ERROR] Failed to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\nRelated error:\n%v", extra, extra, logEvent, logEvent, err)
 
 		}
 	}
+
+	// Marshal the log event into a byte slice and unmarshal into logMap
 	logByte, _ := json.Marshal(&logEvent)
 	json.Unmarshal(logByte, &logMap)
+
+	// Parse the log map to fit logz.io limits
 	parsedLogMap := parseLogzioLimits(logMap)
+
+	// Marshal the parsed log map into a byte slice
 	parsedEventLog, err = json.Marshal(parsedLogMap)
 	if err != nil {
+		// If there is an error in marshaling, log the error
 		log.Printf("\n[ERROR] Failed to parse event log:\n%v\nERROR:\n%v", logEvent, err)
 	}
 
-	message := fmt.Sprintf("%s", string(parsedEventLog))
-	if message == "" {
-		log.Printf("\n[DEBUG]: Empty message, not sending to Logz.io.\n")
-	} else {
-		go shipLogMessage(message)
-	}
+	// Convert the parsed event log byte slice to a string
+	//eventLog = fmt.Sprintf("%s", string(parsedEventLog))
 
+	return string(parsedEventLog)
+}
+
+func SendLog(msg string, extraFields ...interface{}) {
+	// This function sends a log message and any extra fields to logz.io.
+
+	if LogzioLogger != nil {
+		// Parse the log message and extra fields into a JSON string
+		eventLog := ParseEventLog(msg, extraFields)
+
+		if eventLog == "" {
+			// If the parsed event log is empty, drop the log
+		} else {
+			// Ship the parsed event log to logz.io in a separate goroutine
+			go shipLogEvent(eventLog)
+
+			// Increment the wait group counter and wait for all goroutines to finish
+			wg.Add(1)
+			wg.Wait()
+		}
+	}
 }
