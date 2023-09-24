@@ -6,8 +6,6 @@ import (
 	"reflect"
 )
 
-// Similarly, define methods for other workload types...
-
 func GetSecretRelatedWorkloads(secretName string, workloads []Workload) (relatedWorkloads []string) {
 	// Create a map of workload names to workloads.
 	workloadsMap := map[string]Workload{}
@@ -149,7 +147,7 @@ func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads
 }
 
 // ClusterRoleBinding Kind
-
+// ClusterRoleBindingRelatedWorkloads gets all the workloads in the cluster related to a specific ClusterRoleBinding.
 func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedWorkloads common.RelatedClusterServices) {
 	//
 	clusterRoleBinding := GetClusterRoleBinding(clusterRoleBindingName)
@@ -168,8 +166,8 @@ func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedW
 	return relatedWorkloads
 }
 
-// ClusterRole Kind
-
+// ClusterRoleRelatedWorkloads ClusterRole Kind
+// ClusterRoleRelatedWorkloads gets all the workloads in the cluster related to a specific ClusterRole.
 func ClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads common.RelatedClusterServices) {
 
 	clusterRoleBindings := GetClusterRoleBindings()

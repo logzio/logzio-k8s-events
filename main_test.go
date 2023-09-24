@@ -20,13 +20,4 @@ func TestDeployEvents(t *testing.T) {
 		}
 
 	}
-
-	////
-	//
-	//common.DynamicClient = common.ConfigureClusterDynamicClient()
-	//if common.DynamicClient != nil {
-	//	resources.AddEventHandlers()
-	//}
-	//
-	//common.LogzioLogger.Stop()
 }

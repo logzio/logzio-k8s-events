@@ -40,7 +40,6 @@ func (h *ListenerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Define the structure of the expected request body
 		type RequestBody struct {
-			Message string `json:"message"`
 		}
 
 		// Read the request body

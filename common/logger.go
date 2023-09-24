@@ -80,9 +80,9 @@ func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
 		// If there are extra fields, convert them to a JSON string and unmarshal into logEvent
 		extra := fmt.Sprintf("%s", extraFields...)
 
-		if err = json.Unmarshal([]byte(extra), &logEvent); err != nil && extra != "" {
+		if err = json.Unmarshal([]byte(extra), &logEvent); err != nil && extra != "" && extra != "[]" {
 			// If there is an error in parsing the extra fields, log the error
-			log.Printf("\n[ERROR] Failed to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\nRelated error:\n%v", extra, logEvent, extra, logEvent, err)
+			log.Printf("\n[ERROR] Failed to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\nRelated error:\n%v", extra, extra, logEvent, logEvent, err)
 
 		}
 	}
@@ -102,9 +102,9 @@ func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
 	}
 
 	// Convert the parsed event log byte slice to a string
-	eventLog = fmt.Sprintf("%s", string(parsedEventLog))
+	//eventLog = fmt.Sprintf("%s", string(parsedEventLog))
 
-	return eventLog
+	return string(parsedEventLog)
 }
 
 func SendLog(msg string, extraFields ...interface{}) {
@@ -124,9 +124,5 @@ func SendLog(msg string, extraFields ...interface{}) {
 			wg.Add(1)
 			wg.Wait()
 		}
-	} else {
-		// If the logz.io logger is not configured, log a message and do not send the log
-		log.Printf("Logz.io logger isn't configured.\nLog won't be sent:\n%s", msg)
 	}
-
 }
