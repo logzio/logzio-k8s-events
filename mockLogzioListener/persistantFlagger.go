@@ -1,28 +1,25 @@
-// Package mockLogzioListener contains the code for mocking a Logz.io listener for testing
 package mockLogzioListener
 
 import (
-	"sync" // Import the sync package for safe concurrent access to shared variables
+	"sync"
 )
 
-// PersistentFlags is a struct that represents persistent flags like server errors
 type PersistentFlags struct {
 	ServerError bool
 }
 
-// Global variables for the application
-var persistentFlagsInstance *PersistentFlags // Singleton instance of PersistentFlags
-var persistentFlagsMutex sync.Mutex          // Mutex for synchronizing access to persistentFlagsInstance
+var persistentFlagsInstance *PersistentFlags
+var persistentFlagsMutex sync.Mutex
 
 // GetPersistentFlagsInstance is a function that returns a singleton instance of PersistentFlags
 // It uses the "double-check locking" pattern to ensure that only one instance of PersistentFlags is created
 func GetPersistentFlagsInstance() *PersistentFlags {
 	CreatePersistentFlags()
-	if persistentFlagsInstance == nil { // First check (not thread-safe)
-		persistentFlagsMutex.Lock() // Lock the mutex to ensure thread-safe access to persistentFlagsInstance
+	if persistentFlagsInstance == nil {
+		persistentFlagsMutex.Lock()
 		defer persistentFlagsMutex.Unlock()
-		if persistentFlagsInstance == nil { // Second check (thread-safe)
-			persistentFlagsInstance = &PersistentFlags{} // Create a new instance of PersistentFlags
+		if persistentFlagsInstance == nil {
+			persistentFlagsInstance = &PersistentFlags{}
 		}
 	}
 	return persistentFlagsInstance

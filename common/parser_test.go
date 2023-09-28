@@ -148,7 +148,7 @@ func GetTestEventLog() (eventLog map[string]interface{}) {
     "type": "Opaque"
   }
 }`)
-	err := json.Unmarshal(eventLogData, &eventLog)
+	err = json.Unmarshal(eventLogData, &eventLog)
 	if err != nil {
 		log.Printf("Error unmarshalling event log: %v", err)
 		return nil

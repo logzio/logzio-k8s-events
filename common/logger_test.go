@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// TestStartMockLogzioListener is used to test the mock listener functionality.
 func TestStartMockLogzioListener(t *testing.T) {
 	mockLogzioListener.StartMockLogzioListener()
 	mockListener := mockLogzioListener.MockListener
@@ -35,21 +36,19 @@ func TestStartMockLogzioListener(t *testing.T) {
 
 }
 
-func TestConfigureLogzioLogger(t *testing.T) {
-	// Creates a resources using Logz.io output configuration: https://app.logz.io/#/dashboard/send-your-data/log-sources/go
-	var err error
+// TestConfigureLogzioSender is used to test the Logz.io sender configuration functionality.
+func TestConfigureLogzioSender(t *testing.T) {
 	LogzioToken := os.Getenv("LOGZIO_TOKEN") // Log shipping token for Logz.io
 	if LogzioToken != "" {
 		LogzioListener := os.Getenv("LOGZIO_LISTENER")
 		if LogzioListener == "" {
-			LogzioListener = "https://listener.logz.io:8071" // Defaults to us-east-1 region
+			LogzioListener = DefaultListener // Defaults to us-east-1 region
 		}
-		LogzioLogger, err = logzio.New(
+		LogzioSender, err = logzio.New(
 			LogzioToken,
 			logzio.SetDebug(os.Stderr),
 			logzio.SetUrl(LogzioListener),
 			logzio.SetDrainDuration(time.Second*5),
-			logzio.SetTempDirectory("myQueue"),
 			logzio.SetDrainDiskThreshold(99),
 		)
 		if err != nil {
@@ -62,6 +61,8 @@ func TestConfigureLogzioLogger(t *testing.T) {
 	}
 
 }
+
+// TestSendLog is used to test the Logz.io sender functionality.
 func TestSendLog(t *testing.T) {
 
 	t.Run("SendLog", func(t *testing.T) {

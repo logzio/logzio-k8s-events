@@ -6,6 +6,7 @@ import (
 	"reflect"
 )
 
+// GetSecretRelatedWorkloads returns a list of workloads that reference a given secret and are not part of a given list of workloads.
 func GetSecretRelatedWorkloads(secretName string, workloads []Workload) (relatedWorkloads []string) {
 	// Create a map of workload names to workloads.
 	workloadsMap := map[string]Workload{}
@@ -34,6 +35,7 @@ func GetSecretRelatedWorkloads(secretName string, workloads []Workload) (related
 	return relatedWorkloads
 }
 
+// SecretRelatedWorkloads returns a list of workloads that reference a given secret.
 func SecretRelatedWorkloads(secretName string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
@@ -61,6 +63,8 @@ func SecretRelatedWorkloads(secretName string) (relatedWorkloads common.RelatedC
 
 	return relatedWorkloads
 }
+
+// GetConfigMapRelatedWorkloads returns a list of workloads that reference a given config map and are not part of a given list of workloads.
 func GetConfigMapRelatedWorkloads(configMapName string, workloads []Workload) (relatedWorkloads []string) {
 	for _, workload := range workloads {
 		if reflect.ValueOf(workload).IsValid() {
@@ -81,6 +85,7 @@ func GetConfigMapRelatedWorkloads(configMapName string, workloads []Workload) (r
 	return relatedWorkloads
 }
 
+// ConfigMapRelatedWorkloads returns a list of workloads that reference a given config map.
 func ConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
@@ -108,8 +113,7 @@ func ConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common.Re
 	return relatedWorkloads
 }
 
-// ServiceAccount Kind
-
+// GetServiceAccountRelatedWorkloads returns a list of workloads that reference a given service account and are not part of a given list of workloads.
 func GetServiceAccountRelatedWorkloads(serviceAccountName string, workloads []Workload) (relatedWorkloads []string) {
 	for _, workload := range workloads {
 		if reflect.ValueOf(workload).IsValid() && (workload.GetServiceAccountName() == serviceAccountName || workload.GetServiceAccountName() == serviceAccountName) {
@@ -119,6 +123,7 @@ func GetServiceAccountRelatedWorkloads(serviceAccountName string, workloads []Wo
 	return relatedWorkloads
 }
 
+// ServiceAccountRelatedWorkloads returns a list of workloads that reference a given service account.
 func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
@@ -146,8 +151,7 @@ func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads
 	return relatedWorkloads
 }
 
-// ClusterRoleBinding Kind
-// ClusterRoleBindingRelatedWorkloads gets all the workloads in the cluster related to a specific ClusterRoleBinding.
+// ClusterRoleBindingRelatedWorkloads returns a list of workloads that reference a given cluster role binding.
 func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedWorkloads common.RelatedClusterServices) {
 	//
 	clusterRoleBinding := GetClusterRoleBinding(clusterRoleBindingName)
@@ -166,8 +170,7 @@ func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedW
 	return relatedWorkloads
 }
 
-// ClusterRoleRelatedWorkloads ClusterRole Kind
-// ClusterRoleRelatedWorkloads gets all the workloads in the cluster related to a specific ClusterRole.
+// ClusterRoleRelatedWorkloads returns a list of workloads that reference a given cluster role.
 func ClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads common.RelatedClusterServices) {
 
 	clusterRoleBindings := GetClusterRoleBindings()

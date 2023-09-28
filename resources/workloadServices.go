@@ -6,6 +6,7 @@ import (
 	"reflect"
 )
 
+// GetWorkloadRelatedConfigMaps returns a list of all config maps related to the workload
 func GetWorkloadRelatedConfigMaps(workload Workload) (relatedConfigMaps []string) {
 	for _, container := range workload.GetContainers() {
 		for _, env := range container.Env {
@@ -21,6 +22,8 @@ func GetWorkloadRelatedConfigMaps(workload Workload) (relatedConfigMaps []string
 	}
 	return relatedConfigMaps
 }
+
+// GetWorkloadRelatedSecrets returns a list of all secrets related to the workload
 func GetWorkloadRelatedSecrets(workload Workload) (relatedSecrets []string) {
 	for _, container := range workload.GetContainers() {
 		for _, env := range container.Env {
@@ -38,6 +41,7 @@ func GetWorkloadRelatedSecrets(workload Workload) (relatedSecrets []string) {
 	return relatedSecrets
 }
 
+// GetWorkloadRelatedServiceAccounts returns a list of all service accounts related to the workload
 func GetWorkloadRelatedServiceAccounts(workload Workload) (relatedServiceAccounts []string) {
 
 	if workload.GetServiceAccountName() != "" && !slices.Contains(relatedServiceAccounts, workload.GetServiceAccountName()) {
@@ -46,6 +50,7 @@ func GetWorkloadRelatedServiceAccounts(workload Workload) (relatedServiceAccount
 	return relatedServiceAccounts
 }
 
+// GetWorkloadRelatedClusterRoleBindings returns a list of all cluster role bindings related to the workload
 func GetWorkloadRelatedClusterRoleBindings(workload Workload) (relatedClusterRoleBindings []string) {
 
 	if serviceAccountName := workload.GetServiceAccountName(); serviceAccountName != "" {
@@ -64,6 +69,7 @@ func GetWorkloadRelatedClusterRoleBindings(workload Workload) (relatedClusterRol
 	return relatedClusterRoleBindings
 }
 
+// GetWorkloadRelatedClusterRoles returns a list of all cluster roles related to the workload
 func GetWorkloadRelatedClusterRoles(workload Workload) (relatedClusterRoles []string) {
 
 	if serviceAccountName := workload.GetServiceAccountName(); serviceAccountName != "" {
@@ -83,7 +89,7 @@ func GetWorkloadRelatedClusterRoles(workload Workload) (relatedClusterRoles []st
 	return relatedClusterRoles
 }
 
-// Deployment Kind
+// DeploymentRelatedResources returns a list of all resources related to the deployment
 func DeploymentRelatedResources(deploymentName string, namespace string) (relatedResources common.RelatedClusterServices) {
 	//
 	deployment := GetDeployment(deploymentName, namespace)
@@ -99,8 +105,7 @@ func DeploymentRelatedResources(deploymentName string, namespace string) (relate
 	return relatedResources
 }
 
-// DaemonSet Kind
-
+// DaemonSetRelatedResources returns a list of all resources related to the daemonset
 func DaemonSetRelatedResources(daemonSetName string, namespace string) (relatedResources common.RelatedClusterServices) {
 	//
 
@@ -118,7 +123,7 @@ func DaemonSetRelatedResources(daemonSetName string, namespace string) (relatedR
 	return relatedResources
 }
 
-// StatefulSet Kind
+// StatefulSetRelatedResources returns a list of all resources related to the statefulset
 func StatefulSetRelatedResources(statefulSetName string, namespace string) (relatedResources common.RelatedClusterServices) {
 	//
 

@@ -5,6 +5,12 @@ WORKDIR /app
 
 COPY . .
 
+# Create a non root group and user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Switch to the non root new user
+USER appuser
+
 RUN go build -o main .
 
 FROM alpine:3.14

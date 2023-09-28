@@ -20,6 +20,7 @@ import (
 
 var wg sync.WaitGroup
 
+// createResourceInformer creates a dynamic resource informer for a given resource GVR.
 func createResourceInformer(resourceGVR schema.GroupVersionResource, clusterClient *dynamic.DynamicClient) (resourceInformer cache.SharedIndexInformer) {
 	// Creates a Kubernetes dynamic informer for the cluster API resources
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(clusterClient, 0, corev1.NamespaceAll, nil)
@@ -63,7 +64,7 @@ func AddInformerEventHandler(resourceInformer cache.SharedIndexInformer) (synced
 			defer mux.RUnlock()
 			if synced {
 				_, parsedEventLog = StructResourceLog(map[string]interface{}{
-					"eventType": "ADDED",
+					"eventType": common.EventTypeAdded,
 					"newObject": obj,
 				})
 			}
@@ -74,7 +75,7 @@ func AddInformerEventHandler(resourceInformer cache.SharedIndexInformer) (synced
 			defer mux.RUnlock()
 			if synced {
 				_, parsedEventLog = StructResourceLog(map[string]interface{}{
-					"eventType": "MODIFIED",
+					"eventType": common.EventTypeModified,
 					"newObject": newObj,
 					"oldObject": oldObj,
 				})
@@ -86,7 +87,7 @@ func AddInformerEventHandler(resourceInformer cache.SharedIndexInformer) (synced
 			defer mux.RUnlock()
 			if synced {
 				_, parsedEventLog = StructResourceLog(map[string]interface{}{
-					"eventType": "DELETED",
+					"eventType": common.EventTypeDeleted,
 					"newObject": obj,
 				})
 			}
@@ -133,8 +134,8 @@ func AddInformerEventHandler(resourceInformer cache.SharedIndexInformer) (synced
 
 }
 
+// AddEventHandlers adds event handlers and creates resource informer per cluster API resource.
 func AddEventHandlers() {
-	// Creates informer for each cluster API and events handler for each informer
 	resourceAPIList := map[string]string{
 		"configmaps":          "",
 		"deployments":         "apps",
@@ -149,6 +150,7 @@ func AddEventHandlers() {
 	resourceIndex := 0
 	routinesLimit := make(chan bool, len(resourceAPIList)) // limit to number of concurrent goroutines to list resources
 
+	// Creates informer for each cluster API and events handler for each informer
 	for resourceType, resourceGroup := range resourceAPIList {
 		routinesLimit <- true //  will block if there is already goroutines running for the limit number of resources
 		resourceIndex = resourceIndex + 1
@@ -228,7 +230,7 @@ func EventObject(rawObj map[string]interface{}, isNew bool) (resourceObject comm
 			rawUnstructuredObj.Object = resourceObject.OldObject
 		}
 	}
-	// Return the KubernetesEvent object
+
 	return resourceObject
 }
 
@@ -272,7 +274,7 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, marshal
 
 	var msg string
 	// If event is a modification event, get the old event object and parse the event message accordingly
-	if eventType == "MODIFIED" {
+	if eventType == common.EventTypeModified {
 		oldEventObj := EventObject(logEvent.OldObject, false)
 		oldResourceName := oldEventObj.KubernetesMetadata.Name
 		oldResourceNamespace := oldEventObj.KubernetesMetadata.Namespace

@@ -1,7 +1,5 @@
-// Package resources provides functionalities to interact with Kubernetes resources
 package resources
 
-// Import necessary packages
 import (
 	"context"
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,31 +19,26 @@ type Workload interface {
 	GetServiceAccountName() string
 }
 
-// Define types for different Kubernetes resources
 type Pod corev1.Pod
 type Deployment appsv1.Deployment
 type DaemonSet appsv1.DaemonSet
 type StatefulSet appsv1.StatefulSet
 
-// Implement the Workload interface for the Pod type
 func (p Pod) GetName() string                   { return p.Name }
 func (p Pod) GetContainers() []corev1.Container { return p.Spec.Containers }
 func (p Pod) GetVolumes() []corev1.Volume       { return p.Spec.Volumes }
 func (p Pod) GetServiceAccountName() string     { return p.Spec.ServiceAccountName }
 
-// Implement the Workload interface for the Deployment type
 func (d Deployment) GetName() string                   { return d.Name }
 func (d Deployment) GetContainers() []corev1.Container { return d.Spec.Template.Spec.Containers }
 func (d Deployment) GetVolumes() []corev1.Volume       { return d.Spec.Template.Spec.Volumes }
 func (d Deployment) GetServiceAccountName() string     { return d.Spec.Template.Spec.ServiceAccountName }
 
-// Implement the Workload interface for the DaemonSet type
 func (d DaemonSet) GetServiceAccountName() string     { return d.Spec.Template.Spec.ServiceAccountName }
 func (d DaemonSet) GetName() string                   { return d.Name }
 func (d DaemonSet) GetContainers() []corev1.Container { return d.Spec.Template.Spec.Containers }
 func (d DaemonSet) GetVolumes() []corev1.Volume       { return d.Spec.Template.Spec.Volumes }
 
-// Implement the Workload interface for the StatefulSet type
 func (s StatefulSet) GetName() string                   { return s.Name }
 func (s StatefulSet) GetContainers() []corev1.Container { return s.Spec.Template.Spec.Containers }
 func (s StatefulSet) GetVolumes() []corev1.Volume       { return s.Spec.Template.Spec.Volumes }
@@ -53,9 +46,10 @@ func (s StatefulSet) GetServiceAccountName() string     { return s.Spec.Template
 
 // GetClusterRoleBindings retrieves all ClusterRoleBindings in the cluster
 func GetClusterRoleBindings() (relatedClusterRoleBindings []rbacv1.ClusterRoleBinding) {
-	// List clusterRoleBinding
+
+	// List ClusterRoleBindings
 	clusterRoleBindingsClient := common.K8sClient.RbacV1().ClusterRoleBindings()
-	clusterRoleBindings, err := clusterRoleBindingsClient.List(context.TODO(), metav1.ListOptions{})
+	clusterRoleBindings, err := clusterRoleBindingsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related ClusterRoleBindings.
 		log.Printf("[ERROR] Error listing ClusterRoleBindings: %v", err)
@@ -75,7 +69,7 @@ func GetClusterRoleBindings() (relatedClusterRoleBindings []rbacv1.ClusterRoleBi
 func GetDeployments() (relatedDeployments []appsv1.Deployment) {
 	// List Deployments
 	deploymentsClient := common.K8sClient.AppsV1().Deployments("")
-	deployments, err := deploymentsClient.List(context.TODO(), metav1.ListOptions{})
+	deployments, err := deploymentsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related deployments.
 		log.Printf("[ERROR] Error listing Deployments: %v", err)
@@ -95,7 +89,7 @@ func GetDeployments() (relatedDeployments []appsv1.Deployment) {
 func GetPods() (relatedPods []corev1.Pod) {
 	// List Pods
 	podsClient := common.K8sClient.CoreV1().Pods("")
-	pods, err := podsClient.List(context.TODO(), metav1.ListOptions{})
+	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related Pods.
 		log.Printf("[ERROR] Error listing Pods: %v", err)
@@ -116,7 +110,7 @@ func GetPods() (relatedPods []corev1.Pod) {
 func GetDaemonSets() (relatedDaemonSets []appsv1.DaemonSet) {
 	// List DaemonSets
 	daemonSetsClient := common.K8sClient.AppsV1().DaemonSets("")
-	daemonSets, err := daemonSetsClient.List(context.TODO(), metav1.ListOptions{})
+	daemonSets, err := daemonSetsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related DaemonSets.
 		log.Printf("[ERROR] Error listing DaemonSets: %v", err)
@@ -138,7 +132,7 @@ func GetDaemonSets() (relatedDaemonSets []appsv1.DaemonSet) {
 func GetStatefulSets() (relatedStatefulSets []appsv1.StatefulSet) {
 	// List statefulSet
 	statefulSetsClient := common.K8sClient.AppsV1().StatefulSets("")
-	statefulSets, err := statefulSetsClient.List(context.TODO(), metav1.ListOptions{})
+	statefulSets, err := statefulSetsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related statefulSets.
 		log.Printf("[ERROR] Error listing StatefulSets: %v", err)
@@ -158,7 +152,7 @@ func GetStatefulSets() (relatedStatefulSets []appsv1.StatefulSet) {
 func GetDeployment(deploymentName string, namespace string) (relatedDeployment appsv1.Deployment) {
 
 	deploymentsClient := common.K8sClient.AppsV1().Deployments(namespace)
-	deployment, err := deploymentsClient.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("[ERROR] Error getting Deployment: %s \nError: %v", deploymentName, err)
 		return
@@ -174,7 +168,7 @@ func GetDeployment(deploymentName string, namespace string) (relatedDeployment a
 func GetDaemonSet(daemonSetName string, namespace string) (relatedDaemonSet appsv1.DaemonSet) {
 
 	daemonSetsClient := common.K8sClient.AppsV1().DaemonSets(namespace)
-	daemonSet, err := daemonSetsClient.Get(context.TODO(), daemonSetName, metav1.GetOptions{})
+	daemonSet, err := daemonSetsClient.Get(context.Background(), daemonSetName, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("[ERROR] Error getting DaemonSet: %s \nError: %v", daemonSetName, err)
 		return
@@ -190,7 +184,7 @@ func GetDaemonSet(daemonSetName string, namespace string) (relatedDaemonSet apps
 func GetStatefulSet(statefulSetName string, namespace string) (relatedStatefulSet appsv1.StatefulSet) {
 
 	statefulSetsClient := common.K8sClient.AppsV1().StatefulSets(namespace)
-	statefulSet, err := statefulSetsClient.Get(context.TODO(), statefulSetName, metav1.GetOptions{})
+	statefulSet, err := statefulSetsClient.Get(context.Background(), statefulSetName, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("[ERROR] Error getting statefulSet: %s \nError: %v", statefulSetName, err)
 		return
@@ -206,7 +200,7 @@ func GetStatefulSet(statefulSetName string, namespace string) (relatedStatefulSe
 func GetClusterRoleBinding(clusterRoleBindingName string) (relatedClusterRoleBinding rbacv1.ClusterRoleBinding) {
 
 	clusterRoleBindingsClient := common.K8sClient.RbacV1().ClusterRoleBindings()
-	clusterRoleBinding, err := clusterRoleBindingsClient.Get(context.TODO(), clusterRoleBindingName, metav1.GetOptions{})
+	clusterRoleBinding, err := clusterRoleBindingsClient.Get(context.Background(), clusterRoleBindingName, metav1.GetOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related ClusterRoleBindings.
 		log.Printf("[ERROR] Error getting clusterRoleBinding: %v", err)

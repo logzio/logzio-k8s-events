@@ -12,10 +12,8 @@ import (
 	"sync"
 )
 
-// ListenerHandler is an empty struct that will implement the http.Handler interface
 type ListenerHandler struct{}
 
-// MockLogzioListener is a struct that represents a mock Logz.io listener for testing
 type MockLogzioListener struct {
 	Port            int
 	Host            string
@@ -25,12 +23,11 @@ type MockLogzioListener struct {
 	listeningThread *Thread
 }
 
-// Global variables for the application
 var logsList LogsList
 var persistentFlags *PersistentFlags
-var mutex sync.Mutex                 // Mutex for synchronizing access to shared variables
-var serverError bool                 // Flag to simulate server errors
-var MockListener *MockLogzioListener // The mock Logz.io listener
+var mutex sync.Mutex
+var serverError bool
+var MockListener *MockLogzioListener
 
 // ServeHTTP is the function that gets called on each HTTP request
 func (h *ListenerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +105,7 @@ func NewMockLogzioListener() *MockLogzioListener {
 
 	// create a new http server
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
+		Addr:    net.JoinHostPort(host, fmt.Sprint(port)),
 		Handler: listenerHandler,
 	}
 
