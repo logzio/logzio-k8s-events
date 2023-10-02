@@ -2,7 +2,6 @@ package resources
 
 import (
 	"encoding/json"
-	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -11,7 +10,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"log"
 	"main.go/common"
-	"sigs.k8s.io/yaml"
 	"testing"
 )
 
@@ -41,23 +39,26 @@ func TestCreateResourceInformer(t *testing.T) {
 // TestEventObject tests the creation of an event object from a map
 func TestEventObject(t *testing.T) {
 	testDeployment := GetTestDeployment()
-	// Marshal the struct to JSON
-	jsonData, err := yaml.Marshal(testDeployment)
+	jsonData, err := json.Marshal(testDeployment)
 	if err != nil {
-		fmt.Printf("error: %s", err)
-		return
+		t.Fatalf("Failed to marshal test deployment: %s", err)
 	}
 
-	// Unmarshal the JSON to a map
 	var deploymentMap map[string]interface{}
-	err = yaml.Unmarshal(jsonData, &deploymentMap)
-	if err != nil {
-		fmt.Printf("error: %s", err)
-		return
+	if err = json.Unmarshal(jsonData, &deploymentMap); err != nil {
+		t.Fatalf("Failed to unmarshal deployment map: %s", err)
 	}
+
+	// Deep copy of the map
+	mapBytes, _ := json.Marshal(deploymentMap)
+	var newObject map[string]interface{}
+	if err = json.Unmarshal(mapBytes, &newObject); err != nil {
+		t.Fatalf("Failed to unmarshal new object: %s", err)
+	}
+
 	deploymentMap["eventType"] = common.EventTypeAdded
 	deploymentMap["kind"] = "Deployment"
-	deploymentMap["newObject"] = &deploymentMap
+	deploymentMap["newObject"] = newObject
 	eventObject := EventObject(deploymentMap, true)
 
 	if eventObject.Kind != "Deployment" {
@@ -75,24 +76,29 @@ func TestEventObject(t *testing.T) {
 
 // TestStructResourceLog tests the creation of a structured resource log
 func TestStructResourceLog(t *testing.T) {
-	var deploymentMap map[string]interface{}
 	testDeployment := GetTestDeployment()
-	jsonDeployment, err := json.Marshal(testDeployment)
+	jsonData, err := json.Marshal(testDeployment)
 	if err != nil {
-		t.Errorf("Failed to marshal test deployment.\nError:\n %v", err)
+		t.Fatalf("Failed to marshal test deployment: %s", err)
 	}
 
-	err = json.Unmarshal(jsonDeployment, &deploymentMap)
-	if err != nil {
-		t.Errorf("Failed to unmarshal test deployment.\nError:\n %v", err)
+	var deploymentMap map[string]interface{}
+	if err = json.Unmarshal(jsonData, &deploymentMap); err != nil {
+		t.Fatalf("Failed to unmarshal deployment map: %s", err)
 	}
-	deploymentEventMap := map[string]interface{}{
 
-		"eventType": common.EventTypeAdded,
-		"kind":      "Deployment",
-		"newObject": deploymentMap,
+	// Deep copy of the map
+	mapBytes, _ := json.Marshal(deploymentMap)
+	var newObject map[string]interface{}
+	if err = json.Unmarshal(mapBytes, &newObject); err != nil {
+		t.Fatalf("Failed to unmarshal new object: %s", err)
 	}
-	isStructured, _ := StructResourceLog(deploymentEventMap)
+
+	deploymentMap["eventType"] = common.EventTypeAdded
+	deploymentMap["kind"] = "Deployment"
+	deploymentMap["newObject"] = newObject
+
+	isStructured, _ := StructResourceLog(deploymentMap)
 
 	if !isStructured {
 		t.Errorf("Failed to structure resource log")

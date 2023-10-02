@@ -15,6 +15,7 @@ import (
 	"main.go/common"
 	"os"
 	"os/signal"
+	"reflect"
 	"sync"
 )
 
@@ -195,29 +196,19 @@ func EventObject(rawObj map[string]interface{}, isNew bool) (resourceObject comm
 		return resourceObject
 	}
 
-	// Check if the newObject field of rawObj is nil, if it is required
-	if isNew && rawObj["newObject"] == nil {
-		log.Println("[ERROR] rawObj does not have required field: newObject.")
-		// Return an empty KubernetesEvent object if the raw object is invalid
-		return resourceObject
-	}
-
-	// Check if the oldObject field of rawObj is nil, if it is required
-	if !isNew && rawObj["oldObject"] == nil {
-		log.Println("[ERROR] rawObj does not have required field: oldObject.")
-		// Return an empty KubernetesEvent object if the raw object is invalid
-		return resourceObject
-	}
-
 	// Initialize an empty unstructured object
 	rawUnstructuredObj := unstructured.Unstructured{}
 	// Initialize a buffer to store the JSON-encoded raw object
 	var buffer bytes.Buffer
 	// Encode the raw object into JSON and write it to the buffer
-	json.NewEncoder(&buffer).Encode(rawObj)
+	err := json.NewEncoder(&buffer).Encode(rawObj)
+	if err != nil {
+		log.Printf("Failed to encode unstructed resource object bytes:\n%v\nError:\n%v", rawObj, err)
+
+	}
 
 	// Unmarshal the JSON-encoded raw object into a KubernetesEvent object
-	err := json.Unmarshal(buffer.Bytes(), &resourceObject)
+	err = json.Unmarshal(buffer.Bytes(), &resourceObject)
 	if err != nil {
 		log.Printf("Failed to unmarshal resource object:\n%v\nError:\n%v", rawObj, err)
 	} else {
@@ -236,11 +227,16 @@ func EventObject(rawObj map[string]interface{}, isNew bool) (resourceObject comm
 
 // StructResourceLog receives an event and logs it in a structured format.
 func StructResourceLog(event map[string]interface{}) (isStructured bool, marshaledEvent []byte) {
-
 	// Check if event is nil
 	if event == nil {
 		log.Println("[ERROR] Event is nil")
 		return false, nil
+	}
+	// Check if the newObject field of rawObj is nil, if it is required
+	if event["newObject"] == nil {
+		log.Println("[ERROR] rawObj does not have required field: newObject.")
+		// Return an empty KubernetesEvent object if the raw object is invalid
+		return
 	}
 
 	// Assert that event["eventType"] is a string
@@ -286,7 +282,10 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, marshal
 	}
 
 	// Get the related cluster services for the resource
-	event["relatedClusterServices"] = GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
+	relatedClusterServices := GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
+	if !reflect.ValueOf(relatedClusterServices).IsZero() {
+		event["relatedClusterServices"] = relatedClusterServices
+	}
 	event["message"] = msg
 
 	// Marshal the event to a string
@@ -296,6 +295,7 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, marshal
 	}
 
 	// Mark the goroutine as done
+	wg.Add(1)
 	defer wg.Done()
 
 	// Return true indicating the log is structured
