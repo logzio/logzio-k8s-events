@@ -20,7 +20,7 @@ go test .
 The [tests.yml](https://github.com/logzio/logzio-k8s-events/blob/master/.github/workflows/tests.yml) workflow runs when opening a pull request to validate the tests passes. 
 
 # Architecture 
-[![Architecture](./architecture.svg)
+![Architecture](./architecture.svg)
 
 ## Change log
  - **0.0.1**:
