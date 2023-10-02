@@ -7,12 +7,15 @@ import (
 	"testing"
 )
 
+// CreateFakeClient creates a fake client.
 func CreateFakeClient() (mockClient *fake.Clientset) {
 
 	mockClient = fake.NewSimpleClientset()
 
 	return mockClient
 }
+
+// CreateDynamicFakeClient creates a fake dynamic client.
 func CreateDynamicFakeClient() (mockDynamicClient *fakeDynamic.FakeDynamicClient) {
 	scheme := runtime.NewScheme()
 
@@ -21,7 +24,7 @@ func CreateDynamicFakeClient() (mockDynamicClient *fakeDynamic.FakeDynamicClient
 	return mockDynamicClient
 }
 
-// TestFakeClient demonstrates how to use a fake client with SharedInformerFactory in tests.
+// TestFakeDynamicClient demonstrates how to use a fake dynamic client with SharedInformerFactory in tests.
 func TestFakeDynamicClient(t *testing.T) {
 	// Create the fake client.
 	fakeDynamicClient := CreateDynamicFakeClient()
@@ -32,6 +35,8 @@ func TestFakeDynamicClient(t *testing.T) {
 	}
 
 }
+
+// TestFakeClusterClient demonstrates how to use a fake client with SharedInformerFactory in tests.
 func TestFakeClusterClient(t *testing.T) {
 	// Create the fake client.
 	fakeK8sClient := CreateFakeClient()

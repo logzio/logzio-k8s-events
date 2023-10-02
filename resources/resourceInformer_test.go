@@ -10,10 +10,12 @@ import (
 	fakeDynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/tools/cache"
 	"log"
+	"main.go/common"
 	"sigs.k8s.io/yaml"
 	"testing"
 )
 
+// createFakeResourceInformer creates a fake informer for testing purposes
 func createFakeResourceInformer(gvr schema.GroupVersionResource, fakeDynamicClient *fakeDynamic.FakeDynamicClient) (fakeResourceInformer cache.SharedIndexInformer) {
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(fakeDynamicClient, 0, corev1.NamespaceAll, nil)
 	fakeResourceInformer = factory.ForResource(gvr).Informer()
@@ -25,6 +27,7 @@ func createFakeResourceInformer(gvr schema.GroupVersionResource, fakeDynamicClie
 	return fakeResourceInformer
 }
 
+// TestCreateResourceInformer tests the creation of a resource informer
 func TestCreateResourceInformer(t *testing.T) {
 	fakeDynamicClient := fakeDynamic.NewSimpleDynamicClient(runtime.NewScheme())
 	resourceGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
@@ -35,6 +38,7 @@ func TestCreateResourceInformer(t *testing.T) {
 	}
 }
 
+// TestEventObject tests the creation of an event object from a map
 func TestEventObject(t *testing.T) {
 	testDeployment := GetTestDeployment()
 	// Marshal the struct to JSON
@@ -51,7 +55,7 @@ func TestEventObject(t *testing.T) {
 		fmt.Printf("error: %s", err)
 		return
 	}
-	deploymentMap["eventType"] = "ADDED"
+	deploymentMap["eventType"] = common.EventTypeAdded
 	deploymentMap["kind"] = "Deployment"
 	deploymentMap["newObject"] = &deploymentMap
 	eventObject := EventObject(deploymentMap, true)
@@ -69,6 +73,7 @@ func TestEventObject(t *testing.T) {
 	}
 }
 
+// TestStructResourceLog tests the creation of a structured resource log
 func TestStructResourceLog(t *testing.T) {
 	var deploymentMap map[string]interface{}
 	testDeployment := GetTestDeployment()
@@ -83,7 +88,7 @@ func TestStructResourceLog(t *testing.T) {
 	}
 	deploymentEventMap := map[string]interface{}{
 
-		"eventType": "ADDED",
+		"eventType": common.EventTypeAdded,
 		"kind":      "Deployment",
 		"newObject": deploymentMap,
 	}

@@ -7,6 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// workloadTestEnvVars returns a list of mock env vars for testing.
 func workloadTestEnvVars() (workloadEnvVars []corev1.EnvVar) {
 	workloadEnvVars = []corev1.EnvVar{
 		{
@@ -20,7 +21,7 @@ func workloadTestEnvVars() (workloadEnvVars []corev1.EnvVar) {
 			},
 		},
 		{
-			Name: "TOKEN_ENV_VAR",
+			Name: "CONF_ENV_VAR",
 			ValueFrom: &corev1.EnvVarSource{
 				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -32,6 +33,8 @@ func workloadTestEnvVars() (workloadEnvVars []corev1.EnvVar) {
 	}
 	return workloadEnvVars
 }
+
+// workloadTestVolumes returns a list of mock volumes for testing.
 func workloadTestVolumes() (workloadVolumes []corev1.Volume) {
 
 	workloadVolumes = []corev1.Volume{
@@ -57,6 +60,7 @@ func workloadTestVolumes() (workloadVolumes []corev1.Volume) {
 	return workloadVolumes
 }
 
+// GetTestClusterRoleBinding returns a mock cluster role binding for testing.
 func GetTestClusterRoleBinding(clusterRoleBindingName string) (clusterRoleBinding rbacv1.ClusterRoleBinding) {
 
 	clusterRoleBinding = rbacv1.ClusterRoleBinding{
@@ -87,6 +91,8 @@ func GetTestClusterRoleBinding(clusterRoleBindingName string) (clusterRoleBindin
 
 	return clusterRoleBinding
 }
+
+// GetTestPod returns a mock pod for testing.
 func GetTestPod() (pod corev1.Pod) {
 	pod = corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -111,6 +117,8 @@ func GetTestPod() (pod corev1.Pod) {
 	}
 	return pod
 }
+
+// GetTestDeployment returns a mock deployment for testing.
 func GetTestDeployment() (deployment appsv1.Deployment) {
 	deployment = appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -149,6 +157,8 @@ func GetTestDeployment() (deployment appsv1.Deployment) {
 		}}
 	return deployment
 }
+
+// GetTestDaemonSet returns a mock daemon set for testing.
 func GetTestDaemonSet() (relatedDaemonsets appsv1.DaemonSet) {
 	daemonSet := appsv1.DaemonSet{
 		TypeMeta: metav1.TypeMeta{
@@ -187,6 +197,8 @@ func GetTestDaemonSet() (relatedDaemonsets appsv1.DaemonSet) {
 	}
 	return daemonSet
 }
+
+// GetTestStatefulSet returns a mock stateful set for testing.
 func GetTestStatefulSet() (relatedStatefulsets appsv1.StatefulSet) {
 	statefulSet := appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
@@ -231,7 +243,7 @@ func GetTestStatefulSet() (relatedStatefulsets appsv1.StatefulSet) {
 	return statefulSet
 }
 
-// Resources lists
+// GetTestDaemonSets returns a slice of mock daemon sets for testing.
 func GetTestDaemonSets() (relatedDaemonsets []appsv1.DaemonSet) {
 	daemonSet := GetTestDaemonSet()
 	testDaemonSet := daemonSet
@@ -241,6 +253,8 @@ func GetTestDaemonSets() (relatedDaemonsets []appsv1.DaemonSet) {
 
 	return relatedDaemonsets
 }
+
+// GetTestStatefulSets returns a slice of mock stateful sets for testing.
 func GetTestStatefulSets() (relatedStatefulsets []appsv1.StatefulSet) {
 	statefulSet := GetTestStatefulSet()
 	testStatefulSet := statefulSet
@@ -250,6 +264,8 @@ func GetTestStatefulSets() (relatedStatefulsets []appsv1.StatefulSet) {
 
 	return relatedStatefulsets
 }
+
+// GetTestPods returns a slice of mock pods for testing.
 func GetTestPods() (relatedPods []corev1.Pod) {
 	pod := GetTestPod()
 	testPod := pod
@@ -260,6 +276,8 @@ func GetTestPods() (relatedPods []corev1.Pod) {
 
 	return relatedPods
 }
+
+// GetTestDeployments returns a slice of mock deployments for testing.
 func GetTestDeployments() (relatedDeployments []appsv1.Deployment) {
 	deployment := GetTestDeployment()
 	testDeployment := deployment
@@ -269,6 +287,8 @@ func GetTestDeployments() (relatedDeployments []appsv1.Deployment) {
 
 	return relatedDeployments
 }
+
+// GetTestClusterRoleBindings returns a slice of mock cluster role bindings for testing.
 func GetTestClusterRoleBindings() (relatedClusterRoleBindings []rbacv1.ClusterRoleBinding) {
 	clusterRoleBinding := GetTestClusterRoleBinding("test-clusterrolebinding")
 	testClusterRoleBinding := clusterRoleBinding

@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestSecretRelatedWorkloads tests that the related workloads for a secret are correctly identified.
 func TestSecretRelatedWorkloads(t *testing.T) {
 	var pods []Workload
 	var daemonsets []Workload
@@ -39,6 +40,8 @@ func TestSecretRelatedWorkloads(t *testing.T) {
 		t.Logf("Secret: %s related workloads:\n%v", secretName, relatedWorkloads)
 	}
 }
+
+// TestConfigMapRelatedWorkloads tests that the related workloads for a configmap are correctly identified.
 func TestConfigMapRelatedWorkloads(t *testing.T) {
 
 	var pods []Workload
@@ -73,7 +76,7 @@ func TestConfigMapRelatedWorkloads(t *testing.T) {
 	}
 }
 
-// ServiceAccount Kind
+// TestServiceAccountRelatedWorkloads tests that the related workloads for a service account are correctly identified.
 func TestServiceAccountRelatedWorkloads(t *testing.T) {
 	serviceAccountName := "test-serviceaccount"
 
@@ -84,6 +87,8 @@ func TestServiceAccountRelatedWorkloads(t *testing.T) {
 		t.Logf("Service account: %s related workloads:\n%v", serviceAccountName, relatedWorkloads)
 	}
 }
+
+// ServiceAccountTestRelatedWorkloads returns a list of related workloads for a test service account are correctly identified.
 func ServiceAccountTestRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
@@ -112,8 +117,7 @@ func ServiceAccountTestRelatedWorkloads(serviceAccountName string) (relatedWorkl
 	return relatedWorkloads
 }
 
-// ClusterRoleBinding Kind
-
+// TestClusterRoleBindingRelatedWorkloads tests that the related workloads for a cluster role binding are correctly identified.
 func TestClusterRoleBindingRelatedWorkloads(t *testing.T) {
 	//
 	var relatedWorkloads common.RelatedClusterServices
@@ -138,8 +142,7 @@ func TestClusterRoleBindingRelatedWorkloads(t *testing.T) {
 	}
 }
 
-// ClusterRole Kind
-
+// TestClusterRoleRelatedWorkloads tests that the related workloads for a cluster role are correctly identified.
 func TestClusterRoleRelatedWorkloads(t *testing.T) {
 	var relatedWorkloads common.RelatedClusterServices
 	clusterRoleName := "test-clusterrole"

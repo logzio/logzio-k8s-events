@@ -1,20 +1,17 @@
 package common
 
 import (
-	"crypto/md5"                                        // For hashing sensitive data
-	"encoding/json"                                     // For marshalling and unmarshalling JSON
-	"fmt"                                               // For formatting strings
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured" // For handling unstructured data
-	"k8s.io/utils/strings/slices"                       // For string slicing
-	"log"                                               // For logging errors
-	"reflect"                                           // For handling reflection
-	"strings"                                           // For string operations
+	"crypto/md5"
+	"encoding/json"
+	"fmt"
+	"k8s.io/utils/strings/slices"
+	"log"
+	"reflect"
+	"strings"
 )
 
-// Struct types for various Kubernetes event and metadata
 var eventKind string
 
-// Struct types for various Kubernetes event and metadata
 type KubernetesMetadata struct {
 	Name            string `json:"name,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
@@ -53,7 +50,7 @@ type RelatedClusterServices struct {
 	ClusterRoleBindings []string `json:"clusterrolebindings,omitempty"`
 }
 
-// IsValidList Function to check if an array is valid
+// IsValidList checks if an array is valid
 func IsValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArray bool) {
 	// Logz.io doesn't support nested array objects well as they contain different data types
 	for _, v := range arrayFieldI {
@@ -65,18 +62,18 @@ func IsValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArr
 	return arrayFieldI, isValidArray
 }
 
-// ParseEventMessage Function to parse event messages
+// ParseEventMessage parses event messages from the kubernetes event log
 func ParseEventMessage(eventType string, resourceName string, resourceKind string, resourceNamespace string, newResourceVersion string, oldResourceVersions ...string) (msg string) {
 
-	if eventType == "MODIFIED" {
+	if eventType == EventTypeModified {
 		if len(oldResourceVersions) > 0 {
 			oldResourceVersion := oldResourceVersions[0]
 			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was updated from version: %s to new version: %s.\n", resourceName, resourceKind, resourceNamespace, oldResourceVersion, newResourceVersion)
 		}
-	} else if eventType == "DELETED" {
+	} else if eventType == EventTypeDeleted {
 		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s with version: %s was deleted.\n", resourceName, resourceKind, resourceNamespace, newResourceVersion)
 
-	} else if eventType == "ADDED" {
+	} else if eventType == EventTypeAdded {
 		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was added with version: %s.\n", resourceName, resourceKind, resourceNamespace, newResourceVersion)
 	} else {
 		log.Printf("[ERROR] Failed to parse resource event log message. Unknown eventType: %s.\n", eventType)
@@ -84,7 +81,7 @@ func ParseEventMessage(eventType string, resourceName string, resourceKind strin
 	return msg
 }
 
-// FormatFieldName Function to format field name
+// FormatFieldName formats field name
 func FormatFieldName(field string) (fieldName string) {
 	fieldName = field
 	// Check if the field contains a dot/slash/hyphen and replace it with underscore
@@ -96,7 +93,7 @@ func FormatFieldName(field string) (fieldName string) {
 	return fieldName
 }
 
-// FormatFieldValue Function to format field value
+// FormatFieldValue formats field value
 func FormatFieldValue(value interface{}) (fieldValue interface{}) {
 	fieldValue = value
 	// Check if the field value is an array and parse it to a string
@@ -119,7 +116,7 @@ func FormatFieldValue(value interface{}) (fieldValue interface{}) {
 	return fieldValue
 }
 
-// FormatFieldOverLimit Function to format field over limit
+// FormatFieldOverLimit formats field value if it is over limit
 func FormatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLimit string, truncatedFieldValue interface{}) {
 	fieldOverLimit = fieldName
 	truncatedFieldValue = fieldValue
@@ -137,7 +134,7 @@ func FormatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLi
 
 }
 
-// IsEmptyMap Function to check if the map is empty
+// IsEmptyMap checks if the map is empty
 func IsEmptyMap(value interface{}) bool {
 	isEmpty := false
 	v := reflect.ValueOf(value)
@@ -147,7 +144,7 @@ func IsEmptyMap(value interface{}) bool {
 	return isEmpty
 }
 
-// Function to parse logz.io limits
+// parseLogzioLimits parses the logzio limits and replaces the fields with the new ones
 func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[string]interface{}) {
 
 	// Declare variables
@@ -211,14 +208,7 @@ func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[stri
 	return parsedLogEvent
 }
 
-// NewUnstructured Function to create new unstructured data
-func NewUnstructured(rawObj map[string]interface{}) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: rawObj,
-	}
-}
-
-// Function to hash data
+// hashData uses MD5 to hash the secret and return the hashed secret
 func hashData(data interface{}) (hashedData string) {
 	// Create a new MD5 hash object
 	hash := md5.New()
@@ -235,7 +225,7 @@ func hashData(data interface{}) (hashedData string) {
 	return hashedData
 }
 
-// MaskSensitiveData Function to mask sensitive data
+// MaskSensitiveData masks sensitive data in the log event
 func MaskSensitiveData(eventKind string, fieldName string, fieldValue interface{}) (maskedField string, maskedValue interface{}) {
 	maskedValue = fieldValue // Initialize maskedValue to original fieldValue
 	maskedField = fieldName  // Initialize maskedField to original fieldName

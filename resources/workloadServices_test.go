@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// getTestWorkloadRelatedClusterRoleBindings is used to get related cluster role bindings for a test workload
 func getTestWorkloadRelatedClusterRoleBindings(workload Workload) (relatedClusterRoleBindings []string) {
 
 	if serviceAccountName := workload.GetServiceAccountName(); serviceAccountName != "" {
@@ -24,6 +25,7 @@ func getTestWorkloadRelatedClusterRoleBindings(workload Workload) (relatedCluste
 	return relatedClusterRoleBindings
 }
 
+// getTestWorkloadRelatedClusterRoles is used to get related cluster roles for a test workload
 func getTestWorkloadRelatedClusterRoles(workload Workload) (relatedClusterRoles []string) {
 
 	if serviceAccountName := workload.GetServiceAccountName(); serviceAccountName != "" {
@@ -43,7 +45,7 @@ func getTestWorkloadRelatedClusterRoles(workload Workload) (relatedClusterRoles 
 	return relatedClusterRoles
 }
 
-// Deployment Kind
+// TestDeploymentRelatedResources is used to test getting related resources for a test deployment
 func TestDeploymentRelatedResources(t *testing.T) {
 	//
 	var relatedResources common.RelatedClusterServices
@@ -66,7 +68,7 @@ func TestDeploymentRelatedResources(t *testing.T) {
 
 }
 
-// DaemonSet Kind
+// TestDaemonSetRelatedResources is used to test getting related resources for a test daemonset
 func TestDaemonSetRelatedResources(t *testing.T) {
 	var relatedResources common.RelatedClusterServices
 	daemonSet := GetTestDaemonSet()
@@ -87,7 +89,7 @@ func TestDaemonSetRelatedResources(t *testing.T) {
 
 }
 
-// StatefulSet Kind
+// TestStatefulSetRelatedResources is used to test getting related resources for a test statefulset
 func TestStatefulSetRelatedResources(t *testing.T) {
 	//
 	var relatedResources common.RelatedClusterServices

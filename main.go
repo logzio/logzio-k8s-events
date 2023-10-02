@@ -1,13 +1,13 @@
 package main
 
 import (
-	"main.go/common"    // Importing common package for application wide functions
-	"main.go/resources" // Importing resources package for handling resources
+	"main.go/common"
+	"main.go/resources"
 )
 
 func main() {
 
-	common.ConfigureLogzioLogger() // Configure logz.io logger
+	common.ConfigureLogzioSender() // Configure logz.io logger
 
 	// Sending a log message indicating the start of K8S Events Logz.io Integration
 	common.SendLog("Starting K8S Events Logz.io Integration.")
@@ -19,5 +19,5 @@ func main() {
 		resources.AddEventHandlers()
 	}
 
-	common.LogzioLogger.Stop() // Stopping the logz.io logger after the application finishes
+	common.LogzioSender.Stop() // Stopping the logz.io logger after the application finishes
 }
