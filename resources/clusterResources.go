@@ -216,30 +216,33 @@ func GetClusterRoleBinding(clusterRoleBindingName string) (relatedClusterRoleBin
 
 // GetClusterRelatedResources retrieves all related resources for a given resource kind, name and namespace.
 func GetClusterRelatedResources(resourceKind string, resourceName string, namespace string) (relatedClusterServices common.RelatedClusterServices) {
-	//
-	log.Printf("[DEBUG] Attemping to parse Resource: %s of kind: %s related cluster services.\n", resourceName, resourceKind)
 
 	common.CreateClusterClient()
 
-	switch resourceKind {
-	case "ConfigMap":
-		relatedClusterServices = ConfigMapRelatedWorkloads(resourceName)
-	case "Secret":
-		relatedClusterServices = SecretRelatedWorkloads(resourceName)
-	case "ClusterRoleBinding":
-		relatedClusterServices = ClusterRoleBindingRelatedWorkloads(resourceName)
-	case "ServiceAccount":
-		relatedClusterServices = ServiceAccountRelatedWorkloads(resourceName)
-	case "ClusterRole":
-		relatedClusterServices = ClusterRoleRelatedWorkloads(resourceName)
-	case "Deployment":
-		relatedClusterServices = DeploymentRelatedResources(resourceName, namespace)
-	case "DaemonSet":
-		relatedClusterServices = DaemonSetRelatedResources(resourceName, namespace)
-	case "StatefulSet":
-		relatedClusterServices = StatefulSetRelatedResources(resourceName, namespace)
-	default:
-		log.Printf("[ERROR] Unknown resource kind %s", resourceKind)
+	if common.K8sClient != nil {
+		switch resourceKind {
+		case "ConfigMap":
+			relatedClusterServices = ConfigMapRelatedWorkloads(resourceName)
+		case "Secret":
+			relatedClusterServices = SecretRelatedWorkloads(resourceName)
+		case "ClusterRoleBinding":
+			relatedClusterServices = ClusterRoleBindingRelatedWorkloads(resourceName)
+		case "ServiceAccount":
+			relatedClusterServices = ServiceAccountRelatedWorkloads(resourceName)
+		case "ClusterRole":
+			relatedClusterServices = ClusterRoleRelatedWorkloads(resourceName)
+		case "Deployment":
+			relatedClusterServices = DeploymentRelatedResources(resourceName, namespace)
+		case "DaemonSet":
+			relatedClusterServices = DaemonSetRelatedResources(resourceName, namespace)
+		case "StatefulSet":
+			relatedClusterServices = StatefulSetRelatedResources(resourceName, namespace)
+		default:
+			log.Printf("[ERROR] Unknown resource kind %s", resourceKind)
+		}
+
+	} else {
+		log.Printf("Failed to parse Resource: %s of kind: %s related cluster services, couldn't create a K8S client.\n", resourceName, resourceKind)
 	}
 
 	return relatedClusterServices
