@@ -2,6 +2,7 @@ package resources
 
 import (
 	"encoding/json"
+	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -59,7 +60,24 @@ func TestEventObject(t *testing.T) {
 	deploymentMap["eventType"] = common.EventTypeAdded
 	deploymentMap["kind"] = "Deployment"
 	deploymentMap["newObject"] = newObject
-	eventObject := EventObject(deploymentMap, true)
+	// Initialize an empty LogEvent
+	logEvent := &common.LogEvent{}
+
+	// Marshal the event to a string
+	eventStr, _ := json.Marshal(deploymentMap)
+	// Unmarshal the string back to a logEvent
+	err = json.Unmarshal(eventStr, logEvent)
+	if err != nil {
+		log.Printf(" Error unmarshalling event")
+		return
+	}
+
+	fmt.Printf("NEW RAW OBJECT: %v\n", logEvent.NewObject)
+	// Get the new event object
+	eventObject := logEvent.KubernetesEvent
+	fmt.Printf("NewObject before EventObject: %v\n", newObject)
+	eventObject = EventObject(newObject)
+	fmt.Printf("KubernetesEvent after EventObject: %v\n", eventObject)
 
 	if eventObject.Kind != "Deployment" {
 		t.Errorf("Failed to create event object, expected kind Deployment, got %s", eventObject.Kind)

@@ -1,7 +1,9 @@
 package common
 
 import (
+	"encoding/json"
 	"github.com/logzio/logzio-go"
+	"log"
 	"main.go/mockLogzioListener"
 	"testing"
 
@@ -70,8 +72,14 @@ func TestSendLog(t *testing.T) {
 		os.Setenv("LOG_TYPE", "logzio-k8s-events-test")
 		logsListInstance := mockLogzioListener.GetLogsListInstance()
 		allLogs := logsListInstance.List
-		for _, testLog := range allLogs {
-			SendLog("Test log", testLog)
+		eventLog := GetTestEventLog()
+		parsedEventLog, err := json.Marshal(eventLog)
+		if err != nil {
+			log.Printf("EventLog JSON marshaling failed: %s", err)
+		}
+		allLogs = append(allLogs, string(parsedEventLog)) // append the log to the list
+		for _, _ = range allLogs {
+			SendLog("Test log", eventLog)
 		}
 	})
 }
