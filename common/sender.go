@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/logzio/logzio-go"
 	"log"
 	"os"
@@ -11,7 +10,6 @@ import (
 )
 
 var LogzioSender *logzio.LogzioSender
-var wg sync.WaitGroup
 
 // ConfigureLogzioSender configures the Logz.io sender
 func ConfigureLogzioSender() {
@@ -54,12 +52,10 @@ func shipLogEvent(eventLog string) {
 	}
 
 	LogzioSender.Drain() // Draining the logger
-	defer wg.Done()      // Signaling that this function is done
+
 }
 
-// ParseEventLog function parses an event log message and any extra fields,
-// converting them into a JSON string.
-func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
+func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog string) {
 
 	var parsedEventLog []byte
 	var logMap map[string]interface{}
@@ -76,20 +72,23 @@ func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
 	logEvent := LogEvent{Message: msg, Type: logType, EnvironmentID: environmentID}
 
 	if len(extraFields) > 0 {
-		// If there are extra fields, convert them to a JSON string and unmarshal into logEvent
-		extra := fmt.Sprintf("%s", extraFields...)
-
-		if err = json.Unmarshal([]byte(extra), &logEvent); err != nil && extra != "" && extra != "[]" {
-			// If there is an error in parsing the extra fields, log the error
-			log.Printf("\n[ERROR] Failed to parse log extra data(%T): %s\tlog(%T):\n%v to Logz.io.\nRelated error:\n%v", extra, extra, logEvent, logEvent, err)
-
-		}
+		logEvent.ExtraFields = extraFields[0]
 	}
 
 	// Marshal the log event into a byte slice and unmarshal into logMap
 	logByte, _ := json.Marshal(&logEvent)
-	json.Unmarshal(logByte, &logMap)
 
+	err := json.Unmarshal(logByte, &logMap)
+	if err != nil {
+		// If there is an error in unmarshaling, log the error
+		log.Printf("\n[ERROR] Failed to parse event log:\n%v\nERROR:\n%v", logEvent, err)
+		return
+	}
+
+	// Merge ExtraFields into logMap
+	for key, value := range logEvent.ExtraFields {
+		logMap[key] = value
+	}
 	// Parse the log map to fit logz.io limits
 	parsedLogMap := parseLogzioLimits(logMap)
 
@@ -104,21 +103,27 @@ func ParseEventLog(msg string, extraFields ...interface{}) (eventLog string) {
 }
 
 // SendLog sends a log message and any extra fields to Logz.io.
-func SendLog(msg string, extraFields ...interface{}) {
+func SendLog(msg string, extraFields ...map[string]interface{}) {
 
 	if LogzioSender != nil {
-		// Parse the log message and extra fields into a JSON string
-		eventLog := ParseEventLog(msg, extraFields)
-
-		if eventLog == "" {
-			// If the parsed event log is empty, drop the log
+		var senderWG sync.WaitGroup // Create a new WaitGroup here
+		var eventLog string
+		if len(extraFields) > 0 {
+			eventLog = ParseEventLog(msg, extraFields[0])
 		} else {
-			// Ship the parsed event log to logz.io in a separate goroutine
-			go shipLogEvent(eventLog)
-
-			// Increment the wait group counter and wait for all goroutines to finish
-			wg.Add(1)
-			wg.Wait()
+			eventLog = ParseEventLog(msg)
 		}
+		if eventLog == "" {
+			return
+		}
+
+		senderWG.Add(1) // Increment the WaitGroup
+		go func() {
+			defer senderWG.Done() // Decrement the WaitGroup when the goroutine finishes
+			shipLogEvent(eventLog)
+
+		}()
+
+		senderWG.Wait() // Wait for all goroutines to finish
 	}
 }

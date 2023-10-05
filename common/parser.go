@@ -36,6 +36,7 @@ type LogEvent struct {
 	Type                   string `json:"type,omitempty"`
 	EnvironmentID          string `json:"env_id,omitempty"`
 	RelatedClusterServices `json:"relatedClusterServices,omitempty"`
+	ExtraFields            map[string]interface{} `json:"-"`
 }
 
 type RelatedClusterServices struct {
@@ -68,13 +69,13 @@ func ParseEventMessage(eventType string, resourceName string, resourceKind strin
 	if eventType == EventTypeModified {
 		if len(oldResourceVersions) > 0 {
 			oldResourceVersion := oldResourceVersions[0]
-			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was updated from version: %s to new version: %s.\n", resourceName, resourceKind, resourceNamespace, oldResourceVersion, newResourceVersion)
+			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was updated from version: %s to new version: %s.", resourceName, resourceKind, resourceNamespace, oldResourceVersion, newResourceVersion)
 		}
 	} else if eventType == EventTypeDeleted {
-		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s with version: %s was deleted.\n", resourceName, resourceKind, resourceNamespace, newResourceVersion)
+		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s with version: %s was deleted.", resourceName, resourceKind, resourceNamespace, newResourceVersion)
 
 	} else if eventType == EventTypeAdded {
-		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was added with version: %s.\n", resourceName, resourceKind, resourceNamespace, newResourceVersion)
+		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was added with version: %s.", resourceName, resourceKind, resourceNamespace, newResourceVersion)
 	} else {
 		log.Printf("[ERROR] Failed to parse resource event log message. Unknown eventType: %s.\n", eventType)
 	}
@@ -85,9 +86,9 @@ func ParseEventMessage(eventType string, resourceName string, resourceKind strin
 func FormatFieldName(field string) (fieldName string) {
 	fieldName = field
 	// Check if the field contains a dot/slash/hyphen and replace it with underscore
-	if strings.ContainsAny(field, "/.-") {
+	if strings.ContainsAny(field, "\\.-") {
 		fieldName = strings.ReplaceAll(fieldName, ".", "_")
-		fieldName = strings.ReplaceAll(fieldName, "/", "_")
+		fieldName = strings.ReplaceAll(fieldName, "\\", "_")
 		fieldName = strings.ReplaceAll(fieldName, "-", "_")
 	}
 	return fieldName
