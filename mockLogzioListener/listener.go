@@ -46,7 +46,7 @@ func (h *ListenerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(reqBody, &requestBody)
 		b, err := json.Marshal(requestBody)
 
-		fmt.Printf("%s", b)
+		log.Printf("%s", b)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Bad Request\nRequest:\n%v", requestBody), http.StatusBadRequest)
 			return

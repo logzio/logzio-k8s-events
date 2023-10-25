@@ -23,5 +23,7 @@ The [tests.yml](https://github.com/logzio/logzio-k8s-events/blob/master/.github/
 ![Architecture](./architecture.svg)
 
 ## Change log
+ - **0.0.2**:
+    - Ignore internal event changes.
  - **0.0.1**:
     - Initial release.

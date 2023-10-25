@@ -24,7 +24,6 @@ func ConfigureLogzioSender() {
 		// Creating a new logz.io logger with specified configuration
 		LogzioSender, err = logzio.New(
 			LogzioToken,
-			logzio.SetDebug(os.Stderr),
 			logzio.SetUrl(LogzioListener),
 			logzio.SetDrainDuration(time.Second*5),
 			logzio.SetDrainDiskThreshold(99),

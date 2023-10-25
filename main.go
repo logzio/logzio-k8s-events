@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"main.go/common"
 	"main.go/resources"
 )
@@ -10,7 +11,7 @@ func main() {
 	common.ConfigureLogzioSender() // Configure logz.io logger
 
 	// Sending a log message indicating the start of K8S Events Logz.io Integration
-	common.SendLog("Starting K8S Events Logz.io Integration.")
+	log.Printf("Starting K8S Events Logz.io Integration.")
 
 	// Configuring dynamic client for kubernetes cluster
 	common.DynamicClient = common.ConfigureClusterDynamicClient()
