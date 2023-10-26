@@ -45,25 +45,25 @@ func createResourceInformer(resourceGVR schema.GroupVersionResource, clusterClie
 
 // deleteInternalFields deletes internal fields from a Kubernetes object
 func deleteInternalFields(obj *unstructured.Unstructured) {
-	if meta, ok := obj.Object["metadata"].(map[string]interface{}); ok {
-		if _, ok := meta["managedFields"]; ok {
-			delete(meta, "managedFields")
+	if meta, ok := obj.Object[common.Metadata].(map[string]interface{}); ok {
+		if _, ok := meta[common.ManagedFields]; ok {
+			delete(meta, common.ManagedFields)
 		}
-		if _, ok := meta["resourceVersion"]; ok {
-			delete(meta, "resourceVersion")
+		if _, ok := meta[common.ResourceVersion]; ok {
+			delete(meta, common.ResourceVersion)
 		}
-		if annotations, ok := meta["annotations"].(map[string]interface{}); ok {
-			if _, ok := annotations["deployment.kubernetes.io/revision"]; ok {
-				delete(annotations, "deployment.kubernetes.io/revision")
+		if annotations, ok := meta[common.Annotations].(map[string]interface{}); ok {
+			if _, ok := annotations[common.DeploymentRevision]; ok {
+				delete(annotations, common.DeploymentRevision)
 				// If annotations is empty, delete it
 				if len(annotations) == 0 {
-					delete(meta, "annotations")
+					delete(meta, common.Annotations)
 				}
 			}
 		}
 	}
-	if _, ok := obj.Object["status"]; ok {
-		delete(obj.Object, "status")
+	if _, ok := obj.Object[common.Status]; ok {
+		delete(obj.Object, common.Status)
 	}
 }
 

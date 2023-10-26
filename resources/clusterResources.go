@@ -155,12 +155,13 @@ func GetDeployment(deploymentName string, namespace string) (relatedDeployment a
 	deploymentsClient := common.K8sClient.AppsV1().Deployments(namespace)
 	deployment, err := deploymentsClient.Get(context.Background(), deploymentName, metav1.GetOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
-
-		} else {
+		resourceNotFoundErr := errors.IsNotFound(err)
+		// Ignore errors of resource not found, as the resource may not exist in the cluster in deletion events.
+		if !resourceNotFoundErr {
 			log.Printf("[ERROR] Failed to get Deployment: %s in namespace %s\nError: %v", deploymentName, namespace, err)
+			return
 		}
-		return
+
 	}
 	if reflect.ValueOf(deployment).IsValid() {
 		relatedDeployment = *deployment
@@ -175,12 +176,13 @@ func GetDaemonSet(daemonSetName string, namespace string) (relatedDaemonSet apps
 	daemonSetsClient := common.K8sClient.AppsV1().DaemonSets(namespace)
 	daemonSet, err := daemonSetsClient.Get(context.Background(), daemonSetName, metav1.GetOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
-
-		} else {
+		resourceNotFoundErr := errors.IsNotFound(err)
+		// Ignore errors of resource not found, as the resource may no longer exist in the cluster in deletion events.
+		if !resourceNotFoundErr {
 			log.Printf("[ERROR] Failed to get DaemonSet: %s in namespace %s\nError: %v", daemonSetName, namespace, err)
+			return
 		}
-		return
+
 	}
 	if reflect.ValueOf(daemonSet).IsValid() {
 		relatedDaemonSet = *daemonSet
@@ -195,13 +197,13 @@ func GetStatefulSet(statefulSetName string, namespace string) (relatedStatefulSe
 	statefulSetsClient := common.K8sClient.AppsV1().StatefulSets(namespace)
 	statefulSet, err := statefulSetsClient.Get(context.Background(), statefulSetName, metav1.GetOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
-
-		} else {
+		resourceNotFoundErr := errors.IsNotFound(err)
+		// Ignore errors of resource not found, as the resource may not exist in the cluster in deletion events.
+		if !resourceNotFoundErr {
 			log.Printf("[ERROR] Failed to get StatefulSet: %s in namespace %s\nError: %v", statefulSetName, namespace, err)
+			return
 		}
 
-		return
 	}
 	if reflect.ValueOf(statefulSet).IsValid() {
 		relatedStatefulSet = *statefulSet
@@ -216,12 +218,13 @@ func GetClusterRoleBinding(clusterRoleBindingName string) (relatedClusterRoleBin
 	clusterRoleBindingsClient := common.K8sClient.RbacV1().ClusterRoleBindings()
 	clusterRoleBinding, err := clusterRoleBindingsClient.Get(context.Background(), clusterRoleBindingName, metav1.GetOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
-
-		} else {
+		resourceNotFoundErr := errors.IsNotFound(err)
+		// Ignore errors of resource not found, as the resource may not exist in the cluster in deletion events.
+		if !resourceNotFoundErr {
 			log.Printf("[ERROR] Failed to get ClusterRoleBinding: %s\nError: %v", clusterRoleBindingName, err)
 			return
 		}
+
 	}
 
 	if reflect.ValueOf(clusterRoleBinding).IsValid() {

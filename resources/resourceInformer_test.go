@@ -128,15 +128,15 @@ func TestIgnoreInternalChanges(t *testing.T) {
 	// Create two identical Kubernetes objects
 	oldObj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"metadata": map[string]interface{}{
+			common.Metadata: map[string]interface{}{
 				"name": "test",
-				"annotations": map[string]interface{}{
-					"deployment.kubernetes.io/revision": "1",
+				common.Annotations: map[string]interface{}{
+					common.DeploymentRevision: "1",
 				},
-				"resourceVersion": "1000",
-				"managedFields":   []interface{}{},
+				common.ResourceVersion: "1000",
+				common.ManagedFields:   []interface{}{},
 			},
-			"status": map[string]interface{}{
+			common.Status: map[string]interface{}{
 				"conditions": []interface{}{
 					map[string]interface{}{
 						"type":   "Ready",
@@ -150,7 +150,7 @@ func TestIgnoreInternalChanges(t *testing.T) {
 	newObj := oldObj.DeepCopy()
 
 	// Change the status field and internal fields of newObj
-	newObj.Object["status"] = map[string]interface{}{
+	newObj.Object[common.Status] = map[string]interface{}{
 		"conditions": []interface{}{
 			map[string]interface{}{
 				"type":   "Ready",
@@ -158,9 +158,9 @@ func TestIgnoreInternalChanges(t *testing.T) {
 			},
 		},
 	}
-	newObj.Object["metadata"].(map[string]interface{})["annotations"].(map[string]interface{})["deployment.kubernetes.io/revision"] = "2"
-	newObj.Object["metadata"].(map[string]interface{})["resourceVersion"] = "1001"
-	newObj.Object["metadata"].(map[string]interface{})["managedFields"] = []interface{}{
+	newObj.Object[common.Metadata].(map[string]interface{})[common.Annotations].(map[string]interface{})[common.DeploymentRevision] = "2"
+	newObj.Object[common.Metadata].(map[string]interface{})[common.ResourceVersion] = "1001"
+	newObj.Object[common.Metadata].(map[string]interface{})[common.ManagedFields] = []interface{}{
 		map[string]interface{}{
 			"manager":    "kubectl",
 			"operation":  "Update",
