@@ -2,8 +2,8 @@ package resources
 
 import (
 	"encoding/json"
-	"fmt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -72,12 +72,12 @@ func TestEventObject(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("NEW RAW OBJECT: %v\n", logEvent.NewObject)
+	log.Printf("NEW RAW OBJECT: %v\n", logEvent.NewObject)
 	// Get the new event object
 	eventObject := logEvent.KubernetesEvent
-	fmt.Printf("NewObject before EventObject: %v\n", newObject)
+	log.Printf("NewObject before EventObject: %v\n", newObject)
 	eventObject = EventObject(newObject)
-	fmt.Printf("KubernetesEvent after EventObject: %v\n", eventObject)
+	log.Printf("KubernetesEvent after EventObject: %v\n", eventObject)
 
 	if eventObject.Kind != "Deployment" {
 		t.Errorf("Failed to create event object, expected kind Deployment, got %s", eventObject.Kind)
@@ -120,5 +120,68 @@ func TestStructResourceLog(t *testing.T) {
 
 	if !isStructured {
 		t.Errorf("Failed to structure resource log")
+	}
+}
+
+// TestIgnoreInternalChanges tests the function IgnoreInternalChanges
+func TestIgnoreInternalChanges(t *testing.T) {
+	// Create two identical Kubernetes objects
+	oldObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			common.Metadata: map[string]interface{}{
+				"name": "test",
+				common.Annotations: map[string]interface{}{
+					common.DeploymentRevision: "1",
+				},
+				common.ResourceVersion: "1000",
+				common.ManagedFields:   []interface{}{},
+			},
+			common.Status: map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+					},
+				},
+			},
+		},
+	}
+
+	newObj := oldObj.DeepCopy()
+
+	// Change the status field and internal fields of newObj
+	newObj.Object[common.Status] = map[string]interface{}{
+		"conditions": []interface{}{
+			map[string]interface{}{
+				"type":   "Ready",
+				"status": "False",
+			},
+		},
+	}
+	newObj.Object[common.Metadata].(map[string]interface{})[common.Annotations].(map[string]interface{})[common.DeploymentRevision] = "2"
+	newObj.Object[common.Metadata].(map[string]interface{})[common.ResourceVersion] = "1001"
+	newObj.Object[common.Metadata].(map[string]interface{})[common.ManagedFields] = []interface{}{
+		map[string]interface{}{
+			"manager":    "kubectl",
+			"operation":  "Update",
+			"apiVersion": "v1",
+			"fieldsType": "FieldsV1",
+			"fieldsV1": map[string]interface{}{
+				"f:metadata": map[string]interface{}{
+					"f:annotations": map[string]interface{}{
+						".":                                   map[string]interface{}{},
+						"f:deployment.kubernetes.io/revision": map[string]interface{}{},
+					},
+				},
+			},
+		},
+	}
+
+	// Pass the objects to IgnoreInternalChanges
+	shouldIgnore := IgnoreInternalChanges(oldObj, newObj)
+
+	// Check that the function correctly ignored the status change and internal field changes
+	if !shouldIgnore {
+		t.Errorf("IgnoreInternalChanges did not ignore internal changes")
 	}
 }

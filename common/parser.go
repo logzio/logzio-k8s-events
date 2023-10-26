@@ -65,20 +65,26 @@ func IsValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArr
 
 // ParseEventMessage parses event messages from the kubernetes event log
 func ParseEventMessage(eventType string, resourceName string, resourceKind string, resourceNamespace string, newResourceVersion string, oldResourceVersions ...string) (msg string) {
+	// More accurate message for cluster level resources
+	inNamespaceMsg := ""
+	if resourceNamespace != "" {
+		inNamespaceMsg = " in namespace: " + resourceNamespace
+	}
 
 	if eventType == EventTypeModified {
 		if len(oldResourceVersions) > 0 {
 			oldResourceVersion := oldResourceVersions[0]
-			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was updated from version: %s to new version: %s.", resourceName, resourceKind, resourceNamespace, oldResourceVersion, newResourceVersion)
+			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s was updated from version: %s to new version: %s.", resourceName, resourceKind, inNamespaceMsg, oldResourceVersion, newResourceVersion)
 		}
 	} else if eventType == EventTypeDeleted {
-		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s with version: %s was deleted.", resourceName, resourceKind, resourceNamespace, newResourceVersion)
+		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s with version: %s was deleted.", resourceName, resourceKind, inNamespaceMsg, newResourceVersion)
 
 	} else if eventType == EventTypeAdded {
-		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s in namespace: %s was added with version: %s.", resourceName, resourceKind, resourceNamespace, newResourceVersion)
+		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s was added with version: %s.", resourceName, resourceKind, inNamespaceMsg, newResourceVersion)
 	} else {
 		log.Printf("[ERROR] Failed to parse resource event log message. Unknown eventType: %s.\n", eventType)
 	}
+
 	return msg
 }
 

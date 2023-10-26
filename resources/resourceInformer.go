@@ -43,6 +43,50 @@ func createResourceInformer(resourceGVR schema.GroupVersionResource, clusterClie
 	return resourceInformer
 }
 
+// deleteInternalFields deletes internal fields from a Kubernetes object
+func deleteInternalFields(obj *unstructured.Unstructured) {
+	if meta, ok := obj.Object[common.Metadata].(map[string]interface{}); ok {
+		if _, ok := meta[common.ManagedFields]; ok {
+			delete(meta, common.ManagedFields)
+		}
+		if _, ok := meta[common.ResourceVersion]; ok {
+			delete(meta, common.ResourceVersion)
+		}
+		if annotations, ok := meta[common.Annotations].(map[string]interface{}); ok {
+			if _, ok := annotations[common.DeploymentRevision]; ok {
+				delete(annotations, common.DeploymentRevision)
+				// If annotations is empty, delete it
+				if len(annotations) == 0 {
+					delete(meta, common.Annotations)
+				}
+			}
+		}
+	}
+	if _, ok := obj.Object[common.Status]; ok {
+		delete(obj.Object, common.Status)
+	}
+}
+
+// IgnoreInternalChanges determines whether the only changes between two Kubernetes objects are internal.
+func IgnoreInternalChanges(oldObj, newObj interface{}) bool {
+	oldUnst, ok1 := oldObj.(*unstructured.Unstructured)
+	newUnst, ok2 := newObj.(*unstructured.Unstructured)
+
+	if ok1 && ok2 {
+		oldCopy := oldUnst.DeepCopy()
+		newCopy := newUnst.DeepCopy()
+
+		deleteInternalFields(oldCopy)
+		deleteInternalFields(newCopy)
+		newJson, _ := json.Marshal(newCopy)
+		oldJson, _ := json.Marshal(oldCopy)
+
+		return string(oldJson) == string(newJson)
+	}
+
+	return false
+}
+
 // addInformerEventHandler adds event handlers to the informer.
 // It handles add, update, and delete events.
 func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
@@ -50,6 +94,7 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 	synced := false
 
 	mux := &sync.RWMutex{}
+
 	_, err := resourceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		// Handle add event
 		AddFunc: func(obj interface{}) {
@@ -74,12 +119,16 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 				return
 			}
 
-			event = map[string]interface{}{
-				"oldObject": oldObj,
-				"newObject": newObj,
-				"eventType": common.EventTypeModified,
+			if IgnoreInternalChanges(oldObj, newObj) {
+				return // ignore internal cluster updates
+			} else {
+				event = map[string]interface{}{
+					"oldObject": oldObj,
+					"newObject": newObj,
+					"eventType": common.EventTypeModified,
+				}
+				go StructResourceLog(event)
 			}
-			go StructResourceLog(event)
 
 		},
 		// Handle delete event
@@ -102,22 +151,25 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 	if err != nil {
 		msg := fmt.Sprintf("[ERROR] Failed to add event handler for informer.\nERROR:\n%v", err)
 		common.SendLog(msg)
-
 		return
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	// Start the informer
 	go resourceInformer.Run(ctx.Done())
 
-	isSynced := cache.WaitForCacheSync(ctx.Done(), resourceInformer.HasSynced)
+	// Wait for all caches to sync
+	cache.WaitForCacheSync(ctx.Done(), resourceInformer.HasSynced)
+
+	// Set synced to true after all informers have synced
 	mux.Lock()
-	synced = isSynced
+	synced = true
 	mux.Unlock()
 
 	// If the informer failed to sync, log the error and terminate the program
-	if !isSynced {
+	if !resourceInformer.HasSynced() {
 		log.Fatal("Informer event handler failed to sync.")
 	}
 
@@ -151,16 +203,16 @@ func AddEventHandlers() {
 		resourceGVR := schema.GroupVersionResource{Group: resourceGroup, Version: "v1", Resource: resourceType}
 
 		// Attempt to create an informer for the resource
-		common.SendLog(fmt.Sprintf("Attempting to create informer for resource API: '%s'", resourceAPI))
+		log.Printf("Attempting to create informer for resource API: '%s'", resourceAPI)
 		resourceInformer := createResourceInformer(resourceGVR, common.DynamicClient)
 		if resourceInformer != nil {
 			// If the informer was successfully created, attempt to add an event handler to it
-			common.SendLog(fmt.Sprintf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI))
+			log.Printf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI)
 			eventHandlerSync.Add(resourceIndex)
 			go addInformerEventHandler(resourceInformer)
 			{
 				defer eventHandlerSync.Done()
-				common.SendLog(fmt.Sprintf("Finished adding event handler to informer for resource API: '%s'", resourceAPI))
+				log.Printf("Finished adding event handler to informer for resource API: '%s'", resourceAPI)
 			}
 		} else {
 			// If the informer could not be created, log the failure
@@ -178,11 +230,11 @@ func EventObject(rawObject map[string]interface{}) (resourceEventObject common.K
 	rawObjUnstructured.Object = rawObject
 	unstructuredObjectJSON, err := rawObjUnstructured.MarshalJSON()
 	if err != nil {
-		fmt.Printf("[ERROR] Failed to marshal unstructured event object.\nERROR:\n%v", err)
+		log.Printf("[ERROR] Failed to marshal unstructured event object.\nERROR:\n%v", err)
 	}
 	err = json.Unmarshal(unstructuredObjectJSON, &resourceEventObject)
 	if err != nil {
-		fmt.Printf("[ERROR] Failed to unmarshal unstructured event object.\nERROR:\n%v", err)
+		log.Printf("[ERROR] Failed to unmarshal unstructured event object.\nERROR:\n%v", err)
 	}
 
 	return resourceEventObject
@@ -196,14 +248,14 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 	jsonString, err := json.Marshal(event)
 	if err != nil {
 
-		fmt.Printf("Failed to marshal structure event log.\nERROR:\n%v", err)
+		log.Printf("Failed to marshal structure event log.\nERROR:\n%v", err)
 		return
 	}
 	err = json.Unmarshal(jsonString, logEvent)
 	if err != nil {
 
 		// event log.
-		fmt.Printf("Failed to unmarshal structure event log.\nERROR:\n%v", err)
+		log.Printf("Failed to unmarshal structure event log.\nERROR:\n%v", err)
 		return
 	}
 	eventType := event["eventType"].(string)
@@ -221,9 +273,9 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 		msg = common.ParseEventMessage(eventType, oldResourceName, resourceKind, oldResourceNamespace, newResourceVersion, oldResourceVersion)
 
 	}
+
 	// Get cluster related resources
 	clusterRelatedResources := GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
-
 	// If the cluster related resources are valid, add them to the event
 	if reflect.ValueOf(clusterRelatedResources).IsValid() {
 		event["relatedClusterServices"] = clusterRelatedResources
