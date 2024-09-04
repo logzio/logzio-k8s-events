@@ -1,4 +1,4 @@
-FROM golang:1.19-alpine AS build
+FROM golang:1.22.3-alpine3.20 AS build
 
 LABEL authors="ralongit"
 WORKDIR /app
@@ -13,6 +13,6 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # Switch to the non root new user
 USER appuser
 
-FROM alpine:3.14
+FROM alpine:3.20
 COPY --from=build /app/main /app/main
 CMD ["/app/main"]
