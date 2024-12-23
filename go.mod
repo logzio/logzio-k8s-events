@@ -3,7 +3,7 @@ module main.go
 go 1.22.3
 
 require (
-	github.com/logzio/logzio-go v1.0.7
+	github.com/logzio/logzio-go v1.0.9
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
