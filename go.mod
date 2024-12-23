@@ -1,6 +1,6 @@
 module main.go
 
-go 1.22.3
+go 1.23.0
 
 require (
 	github.com/logzio/logzio-go v1.0.9

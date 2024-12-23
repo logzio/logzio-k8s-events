@@ -25,6 +25,9 @@ The [tests.yml](https://github.com/logzio/logzio-k8s-events/blob/master/.github/
 ## Change log
  - **0.0.4**:
    - Upgrade `github.com/logzio/logzio-go` to `v1.0.9`
+   - Upgrade GoLang version to `v1.23.0`
+   - Upgrade docker image to `alpine:3.20`
+   - Upgrade GoLang docker image to `golang:1.22.3-alpine3.20`   
  - **0.0.3**:
     - Upgrade GoLang version to `v1.22.3`
     - Upgrade docker image to `alpine:3.20`
