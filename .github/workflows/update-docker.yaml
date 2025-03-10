@@ -31,6 +31,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
+          provenance: mode=max
           tags: |
             logzio/logzio-k8s-events:${{ github.event.release.tag_name }}
             logzio/logzio-k8s-events:latest
