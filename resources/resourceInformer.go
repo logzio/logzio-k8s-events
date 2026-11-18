@@ -140,7 +140,7 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 			}
 
 			event = map[string]interface{}{
-				"newObject": obj,
+				"newObject": unwrapDeletedObject(obj),
 				"eventType": common.EventTypeDeleted,
 			}
 			go StructResourceLog(event)
@@ -176,6 +176,14 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 	// Wait for the process to be interrupted (e.g. by a SIGINT signal)
 	<-ctx.Done()
 
+}
+
+// unwrapDeletedObject returns the deleted object itself when the informer missed the delete and passed a tombstone
+func unwrapDeletedObject(obj interface{}) interface{} {
+	if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		return tombstone.Obj
+	}
+	return obj
 }
 
 // AddEventHandlers creates informers and adds event handlers for the specified Kubernetes resources.

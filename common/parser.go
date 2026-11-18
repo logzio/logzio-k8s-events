@@ -1,16 +1,63 @@
 package common
 
 import (
-	"crypto/md5"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"k8s.io/utils/strings/slices"
 	"log"
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
-var eventKind string
+// The renamed annotation key keeps its slash: FormatFieldName only rewrites dots, hyphens and backslashes
+const lastAppliedConfigField = "kubectl_kubernetes_io/last_applied_configuration"
+
+const defaultSensitiveEnvNames = `password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|access[_-]?key|connection[_-]?string|(^|[_-])(key|pass|pwd|auth|dsn)($|[_-])`
+
+var sensitiveEnvName = mustBuildSensitiveEnvName("")
+
+// buildSensitiveEnvName extends the default sensitive env var name pattern with an additional regex
+func buildSensitiveEnvName(additionalPattern string) (*regexp.Regexp, error) {
+	pattern := defaultSensitiveEnvNames
+	if additionalPattern = strings.TrimSpace(additionalPattern); additionalPattern != "" {
+		pattern += "|(?:" + additionalPattern + ")"
+	}
+	return regexp.Compile("(?i)" + pattern)
+}
+
+func mustBuildSensitiveEnvName(additionalPattern string) *regexp.Regexp {
+	pattern, err := buildSensitiveEnvName(additionalPattern)
+	if err != nil {
+		log.Fatalf("\n[FATAL] Invalid regex in SENSITIVE_ENV_NAMES environment variable.\nERROR: %v\n", err)
+	}
+	return pattern
+}
+
+// hashKey keys the HMAC of masked values, so they can't be reversed with a dictionary without it
+var hashKey = randomHashKey()
+
+func randomHashKey() []byte {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		log.Fatalf("\n[FATAL] Failed to generate a hash key for masking sensitive data.\nERROR: %v\n", err)
+	}
+	return key
+}
+
+// ConfigureMasking adds the regex in SENSITIVE_ENV_NAMES to the env var names whose values are masked,
+// and sets MASKING_HASH_KEY as the hash key, which keeps hashes comparable across restarts
+func ConfigureMasking() {
+	sensitiveEnvName = mustBuildSensitiveEnvName(os.Getenv("SENSITIVE_ENV_NAMES"))
+	if key := os.Getenv("MASKING_HASH_KEY"); key != "" {
+		hashKey = []byte(key)
+	}
+}
 
 type KubernetesMetadata struct {
 	Name            string `json:"name,omitempty"`
@@ -151,27 +198,82 @@ func IsEmptyMap(value interface{}) bool {
 	return isEmpty
 }
 
-// parseLogzioLimits parses the logzio limits and replaces the fields with the new ones
-func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[string]interface{}) {
-
-	// Declare variables
-
-	// Iterate over the log
-	parsedLogEvent = eventLog
-
-	if eventLog["newObject"] != nil {
-		eventI := eventLog["newObject"].(map[string]interface{})
-		if eventI["kind"] != nil {
-			eventKind = eventI["kind"].(string)
+// resourceKind returns the kind of the event's new object, or an empty string if it has none
+func resourceKind(eventLog map[string]interface{}) string {
+	for _, objectField := range []string{"newObject", "oldObject"} {
+		object, _ := eventLog[objectField].(map[string]interface{})
+		if kind, _ := object["kind"].(string); kind != "" {
+			return kind
 		}
 	}
-	for field, value := range eventLog {
+	return ""
+}
+
+// maskLastAppliedEnvVars masks env vars inside the last-applied-configuration annotation, which embeds the whole manifest as JSON
+func maskLastAppliedEnvVars(fieldName string, value interface{}) (maskedValue interface{}, changed bool) {
+	raw, ok := value.(string)
+	if !ok || fieldName != lastAppliedConfigField {
+		return value, false
+	}
+	var manifest interface{}
+	if err := json.Unmarshal([]byte(raw), &manifest); err != nil {
+		return hashData(raw), true
+	}
+	if !maskEnvVars(manifest) {
+		return value, false
+	}
+	masked, err := json.Marshal(manifest)
+	if err != nil {
+		return hashData(raw), true
+	}
+	return string(masked), true
+}
+
+// maskEnvVars hashes the value of sensitive-named env vars nested in arrays, before the arrays are flattened to strings.
+// It reports whether anything was masked.
+func maskEnvVars(value interface{}) (masked bool) {
+	switch v := value.(type) {
+	case []interface{}:
+		for _, item := range v {
+			masked = maskEnvVars(item) || masked
+		}
+	case map[string]interface{}:
+		if name, ok := v["name"].(string); ok && sensitiveEnvName.MatchString(name) {
+			if envValue, ok := v["value"]; ok {
+				v["value_hashed"] = hashData(envValue)
+				delete(v, "value")
+				masked = true
+			}
+		}
+		for _, nested := range v {
+			masked = maskEnvVars(nested) || masked
+		}
+	}
+	return masked
+}
+
+// parseLogzioLimits parses the logzio limits and replaces the fields with the new ones
+func parseLogzioLimits(eventLog map[string]interface{}) map[string]interface{} {
+	return parseLogzioLimitsOfKind(eventLog, resourceKind(eventLog))
+}
+
+func parseLogzioLimitsOfKind(eventLog map[string]interface{}, eventKind string) (parsedLogEvent map[string]interface{}) {
+	parsedLogEvent = eventLog
+
+	// Snapshot the keys: ranging over the map while renaming fields could revisit the added ones, e.g. hash tls_crt_hashed again
+	fields := make([]string, 0, len(eventLog))
+	for field := range eventLog {
+		fields = append(fields, field)
+	}
+	for _, field := range fields {
+		value := eventLog[field]
 		// Check if the field contains a dot/slash/hyphen and replace it with underscore
 		// Check if the field is empty
 
 		if !reflect.ValueOf(value).IsValid() || value == nil || IsEmptyMap(value) {
 			// Remove the empty or invalid/nil/struct{} field from the log
 			delete(parsedLogEvent, field)
+			continue
 		}
 		fieldName := FormatFieldName(field)
 		if fieldName != field {
@@ -184,16 +286,23 @@ func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[stri
 		if !reflect.DeepEqual(value, maskedValue) {
 			parsedLogEvent[maskedField] = maskedValue
 			delete(parsedLogEvent, fieldName)
+			continue
 		}
 
 		nestedField, ok := value.(map[string]interface{})
 
 		// Check if the field is a nested map or struct
 		if ok {
-			parseLogzioLimits(nestedField)
+			parseLogzioLimitsOfKind(nestedField, eventKind)
 		} else {
 			{
-
+				maskEnvVars(value)
+				if eventKind != "Secret" {
+					if maskedValue, changed := maskLastAppliedEnvVars(fieldName, value); changed {
+						value = maskedValue
+						parsedLogEvent[fieldName] = value
+					}
+				}
 				fieldValue := FormatFieldValue(value)
 				if !reflect.DeepEqual(value, fieldValue) {
 					// Add the field value to the parsed log
@@ -215,21 +324,11 @@ func parseLogzioLimits(eventLog map[string]interface{}) (parsedLogEvent map[stri
 	return parsedLogEvent
 }
 
-// hashData uses MD5 to hash the secret and return the hashed secret
-func hashData(data interface{}) (hashedData string) {
-	// Create a new MD5 hash object
-	hash := md5.New()
-
-	// Write the secret to the hash object
-	hash.Write([]byte(data.(string)))
-
-	// Get the MD5 hash of the secret
-	hashSum := hash.Sum(nil)
-
-	// Convert the MD5 hash to a string
-	hashedData = fmt.Sprintf("%x", hashSum)
-
-	return hashedData
+// hashData hashes sensitive data with HMAC-SHA256
+func hashData(data interface{}) string {
+	mac := hmac.New(sha256.New, hashKey)
+	mac.Write([]byte(fmt.Sprint(data)))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // MaskSensitiveData masks sensitive data in the log event
@@ -241,7 +340,7 @@ func MaskSensitiveData(eventKind string, fieldName string, fieldValue interface{
 	fieldsToMask := []string{"password", "secret", "token", "key", "access_token", "api_key", "api_secret", "api_token", "api_key_id", "api_secret_id", "api_token_id", "api_key_secret", "api_secret_key", "api_token_secret"}
 
 	// Check if the field name is in the list of fields to mask, or has "_crt" in it, or is a secret data or last applied configuration
-	if slices.Contains(fieldsToMask, fieldName) || strings.Contains(fieldName, "_crt") || (eventKind == "Secret" && (fieldName == "data" || fieldName == "kubectl_kubernetes_io_last_applied_configuration")) {
+	if slices.Contains(fieldsToMask, fieldName) || strings.Contains(fieldName, "_crt") || (eventKind == "Secret" && (fieldName == "data" || fieldName == lastAppliedConfigField)) {
 		// If the field is sensitive, mask the field value by hashing it
 		stringValue := fmt.Sprintf("%v", fieldValue)
 		maskedValue = hashData(stringValue)
