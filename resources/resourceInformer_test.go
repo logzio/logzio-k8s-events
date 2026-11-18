@@ -266,3 +266,33 @@ func TestAddInformerEventHandlerWaitsForEventsInProgressOnShutdown(t *testing.T)
 		t.Fatal("events in progress did not finish")
 	}
 }
+
+func TestStructResourceLogRemovesManagedFields(t *testing.T) {
+	object := func(generation int64) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]interface{}{
+				"name": "app", "namespace": "default", "generation": generation,
+				"managedFields": []interface{}{map[string]interface{}{"manager": "kubectl"}},
+			},
+		}}
+	}
+	oldObject, newObject := object(1), object(2)
+
+	_, parsedEvent := StructResourceLog(map[string]interface{}{
+		"eventType": common.EventTypeModified, "oldObject": oldObject, "newObject": newObject,
+	})
+
+	for _, objectField := range []string{"newObject", "oldObject"} {
+		metadata := parsedEvent[objectField].(map[string]interface{})["metadata"].(map[string]interface{})
+		if _, ok := metadata["managedFields"]; ok {
+			t.Errorf("%s.metadata.managedFields must not be shipped", objectField)
+		}
+		if metadata["name"] != "app" || metadata["generation"] == nil {
+			t.Errorf("%s.metadata must keep the other fields, got %v", objectField, metadata)
+		}
+	}
+	if _, ok := newObject.Object["metadata"].(map[string]interface{})["managedFields"]; !ok {
+		t.Error("the informer's cached object must not be modified")
+	}
+}
