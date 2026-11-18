@@ -5,14 +5,14 @@ WORKDIR /app
 
 COPY . .
 
-RUN go build -v -o main .
-
-# Create a non root group and user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Switch to the non root new user
-USER appuser
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o main .
 
 FROM alpine:3.24
+
+# A numeric UID lets Kubernetes' runAsNonRoot verify the user isn't root
+RUN addgroup -S -g 10001 appgroup && adduser -S -u 10001 -G appgroup appuser
+
 COPY --from=build /app/main /app/main
+
+USER 10001
 CMD ["/app/main"]
