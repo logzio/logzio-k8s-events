@@ -296,3 +296,37 @@ func TestStructResourceLogRemovesManagedFields(t *testing.T) {
 		t.Error("the informer's cached object must not be modified")
 	}
 }
+
+func TestProcessEventStampsTheEventTime(t *testing.T) {
+	handled := make(chan map[string]interface{}, 1)
+	t.Cleanup(func() { handleEvent = func(event map[string]interface{}) { StructResourceLog(event) } })
+	handleEvent = func(event map[string]interface{}) { handled <- event }
+
+	before := time.Now().UTC().Truncate(time.Millisecond)
+	processEvent(map[string]interface{}{"eventType": common.EventTypeAdded})
+	event := <-handled
+	inFlightEvents.Wait()
+
+	stamp, err := time.Parse(eventTimestampFormat, event["@timestamp"].(string))
+	if err != nil || stamp.Before(before) || stamp.After(time.Now().UTC()) {
+		t.Errorf("expected @timestamp to be the time the event was received, got %v (%v)", event["@timestamp"], err)
+	}
+}
+
+func TestStructResourceLogShipsTheEventTimestamp(t *testing.T) {
+	_, parsedEvent := StructResourceLog(map[string]interface{}{
+		"eventType":  common.EventTypeAdded,
+		"@timestamp": "2026-11-18T10:00:00.000Z",
+		"newObject": &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]interface{}{"name": "c", "namespace": "default"},
+		}},
+	})
+
+	var shipped map[string]interface{}
+	if err := json.Unmarshal([]byte(common.ParseEventLog("msg", parsedEvent)), &shipped); err != nil {
+		t.Fatal(err)
+	}
+	if shipped["@timestamp"] != "2026-11-18T10:00:00.000Z" {
+		t.Errorf("expected @timestamp in the shipped log, got %v", shipped["@timestamp"])
+	}
+}
