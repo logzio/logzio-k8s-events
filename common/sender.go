@@ -2,17 +2,30 @@ package common
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/logzio/logzio-go"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
 
 var LogzioSender *logzio.LogzioSender
 
+// debugLogs prints each full event to stdout. Off by default: the pod's own logs are often shipped to Logz.io too,
+// which would ingest every event twice
+var debugLogs bool
+
 // ConfigureLogzioSender configures the Logz.io sender
 func ConfigureLogzioSender() {
+
+	if debug := os.Getenv("DEBUG"); debug != "" {
+		var err error
+		if debugLogs, err = strconv.ParseBool(debug); err != nil {
+			log.Printf("[WARN] Ignoring invalid DEBUG value %q, expected true or false.", debug)
+		}
+	}
 
 	// Reading logz.io token from environment variables
 	LogzioToken := os.Getenv("LOGZIO_TOKEN")
@@ -40,15 +53,23 @@ func ConfigureLogzioSender() {
 }
 
 // shipLogEvent ships log event to Logz.io
-func shipLogEvent(eventLog string) {
-
-	// Logging the event
-	log.Printf("\n[LOG]: %s\n", eventLog)
+func shipLogEvent(msg string, eventLog string) {
+	if line := stdoutLine(msg, eventLog); line != "" {
+		log.Print(line)
+	}
 	err := LogzioSender.Send([]byte(eventLog)) // Sending the log event to logz.io
 	if err != nil {
 		// If there is an error in sending the log, log the error
-		log.Printf("\nFailed to send log:\n%v to Logz.io.\nRelated error:\n%v.", eventLog, err)
+		log.Printf("\nFailed to send log: %s to Logz.io.\nRelated error:\n%v.", msg, err)
 	}
+}
+
+// stdoutLine returns what to print for an event: its message, or the full event in debug mode
+func stdoutLine(msg string, eventLog string) string {
+	if debugLogs {
+		return fmt.Sprintf("\n[LOG]: %s\n", eventLog)
+	}
+	return msg
 }
 
 func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog string) {
@@ -77,7 +98,7 @@ func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog 
 	err := json.Unmarshal(logByte, &logMap)
 	if err != nil {
 		// If there is an error in unmarshaling, log the error
-		log.Printf("\n[ERROR] Failed to parse event log:\n%v\nERROR:\n%v", logEvent, err)
+		log.Printf("\n[ERROR] Failed to parse event log: %s\nERROR:\n%v", msg, err)
 		return
 	}
 
@@ -92,7 +113,7 @@ func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog 
 	parsedEventLog, err = json.Marshal(parsedLogMap)
 	if err != nil {
 		// If there is an error in marshaling, log the error
-		log.Printf("\n[ERROR] Failed to parse event log:\n%v\nERROR:\n%v", logEvent, err)
+		log.Printf("\n[ERROR] Failed to parse event log: %s\nERROR:\n%v", msg, err)
 	}
 
 	return string(parsedEventLog)
@@ -116,7 +137,7 @@ func SendLog(msg string, extraFields ...map[string]interface{}) {
 		senderWG.Add(1) // Increment the WaitGroup
 		go func() {
 			defer senderWG.Done() // Decrement the WaitGroup when the goroutine finishes
-			shipLogEvent(eventLog)
+			shipLogEvent(msg, eventLog)
 
 		}()
 

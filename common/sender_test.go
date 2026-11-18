@@ -5,6 +5,7 @@ import (
 	"github.com/logzio/logzio-go"
 	"log"
 	"main.go/mockLogzioListener"
+	"strings"
 	"testing"
 
 	"os"
@@ -83,4 +84,19 @@ func TestSendLog(t *testing.T) {
 			SendLog("Test log", eventLog)
 		}
 	})
+}
+
+func TestStdoutLinePrintsTheFullEventOnlyInDebugMode(t *testing.T) {
+	t.Cleanup(func() { debugLogs = false })
+	msg, eventLog := "[EVENT] Resource: db of kind: Secret was updated.", `{"message":"...","newObject":{"kind":"Secret"}}`
+
+	debugLogs = false
+	if got := stdoutLine(msg, eventLog); got != msg {
+		t.Errorf("expected only the message by default, got %q", got)
+	}
+
+	debugLogs = true
+	if got := stdoutLine(msg, eventLog); !strings.Contains(got, eventLog) {
+		t.Errorf("expected the full event in debug mode, got %q", got)
+	}
 }
