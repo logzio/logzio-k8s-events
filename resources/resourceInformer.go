@@ -14,6 +14,7 @@ import (
 	"main.go/common"
 	"reflect"
 	"sync"
+	"time"
 )
 
 // createResourceInformer creates a dynamic resource informer for a given resource GVR.
@@ -85,6 +86,8 @@ func IgnoreInternalChanges(oldObj, newObj interface{}) bool {
 	return false
 }
 
+const eventTimestampFormat = "2006-01-02T15:04:05.000Z07:00"
+
 // inFlightEvents tracks events still being processed, so shutdown waits for them before the final flush
 var inFlightEvents sync.WaitGroup
 
@@ -93,6 +96,8 @@ var handleEvent = func(event map[string]interface{}) { StructResourceLog(event) 
 
 // processEvent structures and sends the event in the background
 func processEvent(event map[string]interface{}) {
+	// Logz.io would otherwise stamp the event when it arrives, after lookups and batching
+	event["@timestamp"] = time.Now().UTC().Format(eventTimestampFormat)
 	inFlightEvents.Add(1)
 	go func() {
 		defer inFlightEvents.Done()
