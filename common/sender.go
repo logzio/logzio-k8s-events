@@ -47,11 +47,7 @@ func shipLogEvent(eventLog string) {
 	if err != nil {
 		// If there is an error in sending the log, log the error
 		log.Printf("\nFailed to send log:\n%v to Logz.io.\nRelated error:\n%v.", eventLog, err)
-		return
 	}
-
-	LogzioSender.Drain() // Draining the logger
-
 }
 
 func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog string) {
