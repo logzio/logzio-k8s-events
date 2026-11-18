@@ -261,6 +261,19 @@ func EventObject(rawObject map[string]interface{}) (resourceEventObject common.K
 
 }
 
+// removeManagedFields drops metadata.managedFields from the event's objects.
+// It's large server-side apply bookkeeping that bloats every log and that no dashboard reads.
+// parsedEvent is a copy, so the informer's cached objects are untouched.
+func removeManagedFields(event map[string]interface{}) {
+	for _, objectField := range []string{"newObject", "oldObject"} {
+		if object, ok := event[objectField].(map[string]interface{}); ok {
+			if metadata, ok := object[common.Metadata].(map[string]interface{}); ok {
+				delete(metadata, common.ManagedFields)
+			}
+		}
+	}
+}
+
 // StructResourceLog structures the event log and sends it.
 func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedEvent map[string]interface{}) {
 	var msg string
@@ -309,6 +322,7 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 		log.Printf("[ERROR] Failed to parse resource event logs.\nERROR:\n%v", err)
 	} else {
 		isStructured = true
+		removeManagedFields(parsedEvent)
 	}
 	// Send the parsed event log
 	common.SendLog(msg, parsedEvent)
