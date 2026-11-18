@@ -1,8 +1,11 @@
 package resources
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -12,6 +15,7 @@ import (
 	"log"
 	"main.go/common"
 	"testing"
+	"time"
 )
 
 // createFakeResourceInformer creates a fake informer for testing purposes
@@ -194,5 +198,71 @@ func TestUnwrapDeletedObject(t *testing.T) {
 	}
 	if got := unwrapDeletedObject(secret); got != secret {
 		t.Errorf("expected a regular object to be returned as is, got %v", got)
+	}
+}
+
+func TestAddInformerEventHandlerWaitsForEventsInProgressOnShutdown(t *testing.T) {
+	started, release := make(chan struct{}, 100), make(chan struct{})
+	t.Cleanup(func() { handleEvent = func(event map[string]interface{}) { StructResourceLog(event) } })
+	handleEvent = func(map[string]interface{}) {
+		started <- struct{}{}
+		<-release
+	}
+
+	gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	client := fakeDynamic.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "DeploymentList"})
+	informer := createFakeResourceInformer(gvr, client)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stopped := make(chan struct{})
+	go func() {
+		addInformerEventHandler(ctx, informer)
+		close(stopped)
+	}()
+
+	// Events before the handler finished syncing are ignored, so create Deployments until one is handled
+	deadline := time.After(5 * time.Second)
+	for i := 0; ; i++ {
+		deployment := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]interface{}{"name": fmt.Sprintf("test-%d", i), "namespace": "default"},
+		}}
+		if _, err := client.Resource(gvr).Namespace("default").Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-started:
+		case <-time.After(50 * time.Millisecond):
+			continue
+		case <-deadline:
+			t.Fatal("no event was handled")
+		}
+		break
+	}
+
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("event handler did not stop after the context was done")
+	}
+
+	eventsDone := make(chan struct{})
+	go func() {
+		inFlightEvents.Wait()
+		close(eventsDone)
+	}()
+	select {
+	case <-eventsDone:
+		t.Fatal("shutdown must wait for the event in progress")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-eventsDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("events in progress did not finish")
 	}
 }

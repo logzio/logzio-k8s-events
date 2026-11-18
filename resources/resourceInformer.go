@@ -12,8 +12,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"log"
 	"main.go/common"
-	"os"
-	"os/signal"
 	"reflect"
 	"sync"
 )
@@ -87,9 +85,24 @@ func IgnoreInternalChanges(oldObj, newObj interface{}) bool {
 	return false
 }
 
-// addInformerEventHandler adds event handlers to the informer.
+// inFlightEvents tracks events still being processed, so shutdown waits for them before the final flush
+var inFlightEvents sync.WaitGroup
+
+// handleEvent is replaced in tests to hold an event in progress
+var handleEvent = func(event map[string]interface{}) { StructResourceLog(event) }
+
+// processEvent structures and sends the event in the background
+func processEvent(event map[string]interface{}) {
+	inFlightEvents.Add(1)
+	go func() {
+		defer inFlightEvents.Done()
+		handleEvent(event)
+	}()
+}
+
+// addInformerEventHandler adds event handlers to the informer and runs it until ctx is done.
 // It handles add, update, and delete events.
-func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
+func addInformerEventHandler(ctx context.Context, resourceInformer cache.SharedIndexInformer) {
 	var event map[string]interface{}
 	synced := false
 
@@ -108,7 +121,7 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 				"newObject": obj,
 				"eventType": common.EventTypeAdded,
 			}
-			go StructResourceLog(event)
+			processEvent(event)
 
 		},
 		// Handle update event
@@ -127,7 +140,7 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 					"newObject": newObj,
 					"eventType": common.EventTypeModified,
 				}
-				go StructResourceLog(event)
+				processEvent(event)
 			}
 
 		},
@@ -143,7 +156,7 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 				"newObject": unwrapDeletedObject(obj),
 				"eventType": common.EventTypeDeleted,
 			}
-			go StructResourceLog(event)
+			processEvent(event)
 
 		},
 	})
@@ -153,9 +166,6 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 		common.SendLog(msg)
 		return
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
 
 	// Start the informer
 	go resourceInformer.Run(ctx.Done())
@@ -168,14 +178,18 @@ func addInformerEventHandler(resourceInformer cache.SharedIndexInformer) {
 	synced = true
 	mux.Unlock()
 
-	// If the informer failed to sync, log the error and terminate the program
-	if !resourceInformer.HasSynced() {
+	// If the informer failed to sync, log the error and terminate the program, unless it's shutting down
+	if !resourceInformer.HasSynced() && ctx.Err() == nil {
 		log.Fatal("Informer event handler failed to sync.")
 	}
 
-	// Wait for the process to be interrupted (e.g. by a SIGINT signal)
+	// Wait for the process to be stopped (SIGINT or SIGTERM)
 	<-ctx.Done()
 
+	// Stop accepting events. Lock waits for running handlers, so no event starts after this
+	mux.Lock()
+	synced = false
+	mux.Unlock()
 }
 
 // unwrapDeletedObject returns the deleted object itself when the informer missed the delete and passed a tombstone
@@ -187,7 +201,8 @@ func unwrapDeletedObject(obj interface{}) interface{} {
 }
 
 // AddEventHandlers creates informers and adds event handlers for the specified Kubernetes resources.
-func AddEventHandlers() {
+// It blocks until ctx is done and every event in progress was handed to the sender.
+func AddEventHandlers(ctx context.Context) {
 
 	// Define the Kubernetes resources for which to create informers and add event handlers
 	resourceAPIList := map[string]string{
@@ -201,12 +216,9 @@ func AddEventHandlers() {
 		"clusterrolebindings": "rbac.authorization.k8s.io",
 	}
 	var eventHandlerSync sync.WaitGroup
-	resourceIndex := 0
 
 	// Loop over the defined resources
 	for resourceType, resourceGroup := range resourceAPIList {
-		resourceIndex = resourceIndex + 1
-
 		resourceAPI := fmt.Sprintf("%s/v1/%s", resourceGroup, resourceType)
 		resourceGVR := schema.GroupVersionResource{Group: resourceGroup, Version: "v1", Resource: resourceType}
 
@@ -216,20 +228,20 @@ func AddEventHandlers() {
 		if resourceInformer != nil {
 			// If the informer was successfully created, attempt to add an event handler to it
 			log.Printf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI)
-			eventHandlerSync.Add(resourceIndex)
-			go addInformerEventHandler(resourceInformer)
-			{
+			eventHandlerSync.Add(1)
+			go func() {
 				defer eventHandlerSync.Done()
-				log.Printf("Finished adding event handler to informer for resource API: '%s'", resourceAPI)
-			}
+				addInformerEventHandler(ctx, resourceInformer)
+			}()
 		} else {
 			// If the informer could not be created, log the failure
 			common.SendLog(fmt.Sprintf("Failed to create informer for resource API: '%s'", resourceAPI))
 		}
 	}
 
-	// Wait for all event handlers to be added
+	// Wait for all informers to stop, then for the events they already started
 	eventHandlerSync.Wait()
+	inFlightEvents.Wait()
 }
 
 // EventObject converts the raw event object into a common.KubernetesEvent object.
@@ -299,6 +311,6 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 		isStructured = true
 	}
 	// Send the parsed event log
-	go common.SendLog(msg, parsedEvent)
+	common.SendLog(msg, parsedEvent)
 	return isStructured, parsedEvent
 }
