@@ -46,6 +46,7 @@ func TestConfigureLogzioSender(t *testing.T) {
 		if LogzioListener == "" {
 			LogzioListener = DefaultListener // Defaults to us-east-1 region
 		}
+		var err error
 		LogzioSender, err = logzio.New(
 			LogzioToken,
 			logzio.SetDebug(os.Stderr),

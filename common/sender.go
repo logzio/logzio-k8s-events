@@ -22,6 +22,7 @@ func ConfigureLogzioSender() {
 			LogzioListener = DefaultListener // Defaults to us-east-1 region
 		}
 		// Creating a new logz.io logger with specified configuration
+		var err error
 		LogzioSender, err = logzio.New(
 			LogzioToken,
 			logzio.SetUrl(LogzioListener),
@@ -43,7 +44,7 @@ func shipLogEvent(eventLog string) {
 
 	// Logging the event
 	log.Printf("\n[LOG]: %s\n", eventLog)
-	err = LogzioSender.Send([]byte(eventLog)) // Sending the log event to logz.io
+	err := LogzioSender.Send([]byte(eventLog)) // Sending the log event to logz.io
 	if err != nil {
 		// If there is an error in sending the log, log the error
 		log.Printf("\nFailed to send log:\n%v to Logz.io.\nRelated error:\n%v.", eventLog, err)

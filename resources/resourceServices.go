@@ -1,6 +1,7 @@
 package resources
 
 import (
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/utils/strings/slices"
 	"main.go/common"
 	"reflect"
@@ -36,21 +37,21 @@ func GetSecretRelatedWorkloads(secretName string, workloads []Workload) (related
 }
 
 // SecretRelatedWorkloads returns a list of workloads that reference a given secret.
-func SecretRelatedWorkloads(secretName string) (relatedWorkloads common.RelatedClusterServices) {
+func SecretRelatedWorkloads(secretName string, namespace string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
 	var deployments []Workload
 	var statefulsets []Workload
-	for _, pod := range GetPods() {
+	for _, pod := range GetPods(namespace) {
 		pods = append(pods, Pod(pod))
 	}
-	for _, daemonset := range GetDaemonSets() {
+	for _, daemonset := range GetDaemonSets(namespace) {
 		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-	for _, deployment := range GetDeployments() {
+	for _, deployment := range GetDeployments(namespace) {
 		deployments = append(deployments, Deployment(deployment))
 	}
-	for _, statefulset := range GetStatefulSets() {
+	for _, statefulset := range GetStatefulSets(namespace) {
 		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
 	relatedPods := GetSecretRelatedWorkloads(secretName, pods)
@@ -86,21 +87,21 @@ func GetConfigMapRelatedWorkloads(configMapName string, workloads []Workload) (r
 }
 
 // ConfigMapRelatedWorkloads returns a list of workloads that reference a given config map.
-func ConfigMapRelatedWorkloads(configMapName string) (relatedWorkloads common.RelatedClusterServices) {
+func ConfigMapRelatedWorkloads(configMapName string, namespace string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
 	var deployments []Workload
 	var statefulsets []Workload
-	for _, pod := range GetPods() {
+	for _, pod := range GetPods(namespace) {
 		pods = append(pods, Pod(pod))
 	}
-	for _, daemonset := range GetDaemonSets() {
+	for _, daemonset := range GetDaemonSets(namespace) {
 		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-	for _, deployment := range GetDeployments() {
+	for _, deployment := range GetDeployments(namespace) {
 		deployments = append(deployments, Deployment(deployment))
 	}
-	for _, statefulset := range GetStatefulSets() {
+	for _, statefulset := range GetStatefulSets(namespace) {
 		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
 	relatedPods := GetConfigMapRelatedWorkloads(configMapName, pods)
@@ -124,21 +125,21 @@ func GetServiceAccountRelatedWorkloads(serviceAccountName string, workloads []Wo
 }
 
 // ServiceAccountRelatedWorkloads returns a list of workloads that reference a given service account.
-func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
+func ServiceAccountRelatedWorkloads(serviceAccountName string, namespace string) (relatedWorkloads common.RelatedClusterServices) {
 	var pods []Workload
 	var daemonsets []Workload
 	var deployments []Workload
 	var statefulsets []Workload
-	for _, pod := range GetPods() {
+	for _, pod := range GetPods(namespace) {
 		pods = append(pods, Pod(pod))
 	}
-	for _, daemonset := range GetDaemonSets() {
+	for _, daemonset := range GetDaemonSets(namespace) {
 		daemonsets = append(daemonsets, DaemonSet(daemonset))
 	}
-	for _, deployment := range GetDeployments() {
+	for _, deployment := range GetDeployments(namespace) {
 		deployments = append(deployments, Deployment(deployment))
 	}
-	for _, statefulset := range GetStatefulSets() {
+	for _, statefulset := range GetStatefulSets(namespace) {
 		statefulsets = append(statefulsets, StatefulSet(statefulset))
 	}
 	relatedPods := GetServiceAccountRelatedWorkloads(serviceAccountName, pods)
@@ -153,41 +154,43 @@ func ServiceAccountRelatedWorkloads(serviceAccountName string) (relatedWorkloads
 
 // ClusterRoleBindingRelatedWorkloads returns a list of workloads that reference a given cluster role binding.
 func ClusterRoleBindingRelatedWorkloads(clusterRoleBindingName string) (relatedWorkloads common.RelatedClusterServices) {
-	//
-	clusterRoleBinding := GetClusterRoleBinding(clusterRoleBindingName)
-
-	// Iterate through the StatefulSets and check for the config map.
-	if reflect.ValueOf(clusterRoleBinding).IsValid() {
-		for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-			if clusterRoleBindingSubject.Kind == "ServiceAccount" {
-				serviceAccountName := clusterRoleBindingSubject.Name
-				relatedWorkloads = ServiceAccountRelatedWorkloads(serviceAccountName)
-			}
-		}
-
-	}
-
-	return relatedWorkloads
+	return subjectsRelatedWorkloads(GetClusterRoleBinding(clusterRoleBindingName).Subjects)
 }
 
 // ClusterRoleRelatedWorkloads returns a list of workloads that reference a given cluster role.
 func ClusterRoleRelatedWorkloads(clusterRoleName string) (relatedWorkloads common.RelatedClusterServices) {
-
-	clusterRoleBindings := GetClusterRoleBindings()
-
-	for _, clusterRoleBinding := range clusterRoleBindings {
-		clusterRoleRef := clusterRoleBinding.RoleRef.Name
-		if clusterRoleRef == clusterRoleName && reflect.ValueOf(clusterRoleBinding).IsValid() {
-			for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-				if clusterRoleBindingSubject.Kind == "ServiceAccount" {
-					serviceAccountName := clusterRoleBindingSubject.Name
-					relatedWorkloads = ServiceAccountRelatedWorkloads(serviceAccountName)
-				}
-			}
-
+	for _, clusterRoleBinding := range GetClusterRoleBindings() {
+		if clusterRoleBinding.RoleRef.Name == clusterRoleName {
+			relatedWorkloads = mergeRelatedWorkloads(relatedWorkloads, subjectsRelatedWorkloads(clusterRoleBinding.Subjects))
 		}
-
 	}
-
 	return relatedWorkloads
+}
+
+// subjectsRelatedWorkloads returns the workloads of every service account subject, each in its own namespace
+func subjectsRelatedWorkloads(subjects []rbacv1.Subject) (relatedWorkloads common.RelatedClusterServices) {
+	for _, subject := range subjects {
+		if subject.Kind == "ServiceAccount" {
+			relatedWorkloads = mergeRelatedWorkloads(relatedWorkloads, ServiceAccountRelatedWorkloads(subject.Name, subject.Namespace))
+		}
+	}
+	return relatedWorkloads
+}
+
+// mergeRelatedWorkloads adds the workloads in other to related, without duplicates
+func mergeRelatedWorkloads(related, other common.RelatedClusterServices) common.RelatedClusterServices {
+	related.Deployments = appendMissing(related.Deployments, other.Deployments)
+	related.DaemonSets = appendMissing(related.DaemonSets, other.DaemonSets)
+	related.StatefulSets = appendMissing(related.StatefulSets, other.StatefulSets)
+	related.Pods = appendMissing(related.Pods, other.Pods)
+	return related
+}
+
+func appendMissing(names, more []string) []string {
+	for _, name := range more {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
 }

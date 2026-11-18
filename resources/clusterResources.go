@@ -15,6 +15,7 @@ import (
 // Workload is an interface that provides a common API for Kubernetes workloads (Pod, Deployment, etc.)
 type Workload interface {
 	GetName() string
+	GetNamespace() string
 	GetContainers() []corev1.Container
 	GetVolumes() []corev1.Volume
 	GetServiceAccountName() string
@@ -26,21 +27,25 @@ type DaemonSet appsv1.DaemonSet
 type StatefulSet appsv1.StatefulSet
 
 func (p Pod) GetName() string                   { return p.Name }
+func (p Pod) GetNamespace() string              { return p.Namespace }
 func (p Pod) GetContainers() []corev1.Container { return p.Spec.Containers }
 func (p Pod) GetVolumes() []corev1.Volume       { return p.Spec.Volumes }
 func (p Pod) GetServiceAccountName() string     { return p.Spec.ServiceAccountName }
 
 func (d Deployment) GetName() string                   { return d.Name }
+func (d Deployment) GetNamespace() string              { return d.Namespace }
 func (d Deployment) GetContainers() []corev1.Container { return d.Spec.Template.Spec.Containers }
 func (d Deployment) GetVolumes() []corev1.Volume       { return d.Spec.Template.Spec.Volumes }
 func (d Deployment) GetServiceAccountName() string     { return d.Spec.Template.Spec.ServiceAccountName }
 
 func (d DaemonSet) GetServiceAccountName() string     { return d.Spec.Template.Spec.ServiceAccountName }
 func (d DaemonSet) GetName() string                   { return d.Name }
+func (d DaemonSet) GetNamespace() string              { return d.Namespace }
 func (d DaemonSet) GetContainers() []corev1.Container { return d.Spec.Template.Spec.Containers }
 func (d DaemonSet) GetVolumes() []corev1.Volume       { return d.Spec.Template.Spec.Volumes }
 
 func (s StatefulSet) GetName() string                   { return s.Name }
+func (s StatefulSet) GetNamespace() string              { return s.Namespace }
 func (s StatefulSet) GetContainers() []corev1.Container { return s.Spec.Template.Spec.Containers }
 func (s StatefulSet) GetVolumes() []corev1.Volume       { return s.Spec.Template.Spec.Volumes }
 func (s StatefulSet) GetServiceAccountName() string     { return s.Spec.Template.Spec.ServiceAccountName }
@@ -66,10 +71,10 @@ func GetClusterRoleBindings() (relatedClusterRoleBindings []rbacv1.ClusterRoleBi
 	return relatedClusterRoleBindings
 }
 
-// GetDeployments retrieves all Deployments in the cluster
-func GetDeployments() (relatedDeployments []appsv1.Deployment) {
+// GetDeployments retrieves all Deployments in the namespace, or in the whole cluster if namespace is empty
+func GetDeployments(namespace string) (relatedDeployments []appsv1.Deployment) {
 	// List Deployments
-	deploymentsClient := common.K8sClient.AppsV1().Deployments("")
+	deploymentsClient := common.K8sClient.AppsV1().Deployments(namespace)
 	deployments, err := deploymentsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related deployments.
@@ -86,10 +91,10 @@ func GetDeployments() (relatedDeployments []appsv1.Deployment) {
 	return relatedDeployments
 }
 
-// GetPods retrieves all Pods in the cluster
-func GetPods() (relatedPods []corev1.Pod) {
+// GetPods retrieves all Pods in the namespace, or in the whole cluster if namespace is empty
+func GetPods(namespace string) (relatedPods []corev1.Pod) {
 	// List Pods
-	podsClient := common.K8sClient.CoreV1().Pods("")
+	podsClient := common.K8sClient.CoreV1().Pods(namespace)
 	pods, err := podsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related Pods.
@@ -107,10 +112,10 @@ func GetPods() (relatedPods []corev1.Pod) {
 	return relatedPods
 }
 
-// GetDaemonSets retrieves all DaemonSets in the cluster
-func GetDaemonSets() (relatedDaemonSets []appsv1.DaemonSet) {
+// GetDaemonSets retrieves all DaemonSets in the namespace, or in the whole cluster if namespace is empty
+func GetDaemonSets(namespace string) (relatedDaemonSets []appsv1.DaemonSet) {
 	// List DaemonSets
-	daemonSetsClient := common.K8sClient.AppsV1().DaemonSets("")
+	daemonSetsClient := common.K8sClient.AppsV1().DaemonSets(namespace)
 	daemonSets, err := daemonSetsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related DaemonSets.
@@ -129,10 +134,10 @@ func GetDaemonSets() (relatedDaemonSets []appsv1.DaemonSet) {
 	return relatedDaemonSets
 }
 
-// GetStatefulSets retrieves all StatefulSets in the cluster
-func GetStatefulSets() (relatedStatefulSets []appsv1.StatefulSet) {
+// GetStatefulSets retrieves all StatefulSets in the namespace, or in the whole cluster if namespace is empty
+func GetStatefulSets(namespace string) (relatedStatefulSets []appsv1.StatefulSet) {
 	// List statefulSet
-	statefulSetsClient := common.K8sClient.AppsV1().StatefulSets("")
+	statefulSetsClient := common.K8sClient.AppsV1().StatefulSets(namespace)
 	statefulSets, err := statefulSetsClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// Handle error by common the error and returning an empty list of related statefulSets.
@@ -163,7 +168,7 @@ func GetDeployment(deploymentName string, namespace string) (relatedDeployment a
 		}
 
 	}
-	if reflect.ValueOf(deployment).IsValid() {
+	if deployment != nil {
 		relatedDeployment = *deployment
 	}
 
@@ -184,7 +189,7 @@ func GetDaemonSet(daemonSetName string, namespace string) (relatedDaemonSet apps
 		}
 
 	}
-	if reflect.ValueOf(daemonSet).IsValid() {
+	if daemonSet != nil {
 		relatedDaemonSet = *daemonSet
 	}
 
@@ -205,7 +210,7 @@ func GetStatefulSet(statefulSetName string, namespace string) (relatedStatefulSe
 		}
 
 	}
-	if reflect.ValueOf(statefulSet).IsValid() {
+	if statefulSet != nil {
 		relatedStatefulSet = *statefulSet
 	}
 
@@ -227,7 +232,7 @@ func GetClusterRoleBinding(clusterRoleBindingName string) (relatedClusterRoleBin
 
 	}
 
-	if reflect.ValueOf(clusterRoleBinding).IsValid() {
+	if clusterRoleBinding != nil {
 		relatedClusterRoleBinding = *clusterRoleBinding
 	}
 
@@ -242,13 +247,13 @@ func GetClusterRelatedResources(resourceKind string, resourceName string, namesp
 	if common.K8sClient != nil {
 		switch resourceKind {
 		case "ConfigMap":
-			relatedClusterServices = ConfigMapRelatedWorkloads(resourceName)
+			relatedClusterServices = ConfigMapRelatedWorkloads(resourceName, namespace)
 		case "Secret":
-			relatedClusterServices = SecretRelatedWorkloads(resourceName)
+			relatedClusterServices = SecretRelatedWorkloads(resourceName, namespace)
 		case "ClusterRoleBinding":
 			relatedClusterServices = ClusterRoleBindingRelatedWorkloads(resourceName)
 		case "ServiceAccount":
-			relatedClusterServices = ServiceAccountRelatedWorkloads(resourceName)
+			relatedClusterServices = ServiceAccountRelatedWorkloads(resourceName, namespace)
 		case "ClusterRole":
 			relatedClusterServices = ClusterRoleRelatedWorkloads(resourceName)
 		case "Deployment":

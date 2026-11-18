@@ -58,7 +58,7 @@ func GetWorkloadRelatedClusterRoleBindings(workload Workload) (relatedClusterRol
 		for _, clusterRoleBinding := range clusterRoleBindings {
 			if reflect.ValueOf(clusterRoleBinding).IsValid() {
 				for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-					if clusterRoleBindingSubject.Kind == "ServiceAccount" && clusterRoleBindingSubject.Name == serviceAccountName {
+					if clusterRoleBindingSubject.Kind == "ServiceAccount" && clusterRoleBindingSubject.Name == serviceAccountName && clusterRoleBindingSubject.Namespace == workload.GetNamespace() {
 						clusterRoleBindingName := clusterRoleBinding.Name
 						relatedClusterRoleBindings = append(relatedClusterRoleBindings, clusterRoleBindingName)
 					}
@@ -77,7 +77,7 @@ func GetWorkloadRelatedClusterRoles(workload Workload) (relatedClusterRoles []st
 		for _, clusterRoleBinding := range clusterRoleBindings {
 			if reflect.ValueOf(clusterRoleBinding).IsValid() {
 				for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-					if clusterRoleBindingSubject.Kind == "ServiceAccount" && clusterRoleBindingSubject.Name == serviceAccountName {
+					if clusterRoleBindingSubject.Kind == "ServiceAccount" && clusterRoleBindingSubject.Name == serviceAccountName && clusterRoleBindingSubject.Namespace == workload.GetNamespace() {
 						clusterRoleName := clusterRoleBinding.RoleRef.Name
 						relatedClusterRoles = append(relatedClusterRoles, clusterRoleName)
 					}
