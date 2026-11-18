@@ -185,3 +185,14 @@ func TestIgnoreInternalChanges(t *testing.T) {
 		t.Errorf("IgnoreInternalChanges did not ignore internal changes")
 	}
 }
+
+func TestUnwrapDeletedObject(t *testing.T) {
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{"kind": "Secret"}}
+
+	if got := unwrapDeletedObject(cache.DeletedFinalStateUnknown{Key: "ns/name", Obj: secret}); got != secret {
+		t.Errorf("expected the tombstone to be unwrapped, got %v", got)
+	}
+	if got := unwrapDeletedObject(secret); got != secret {
+		t.Errorf("expected a regular object to be returned as is, got %v", got)
+	}
+}
