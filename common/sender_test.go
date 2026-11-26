@@ -70,8 +70,8 @@ func TestConfigureLogzioSender(t *testing.T) {
 func TestSendLog(t *testing.T) {
 
 	t.Run("SendLog", func(t *testing.T) {
-		os.Setenv("ENV_ID", "dev")
-		os.Setenv("LOG_TYPE", "logzio-k8s-events-test")
+		t.Setenv("ENV_ID", "dev")
+		t.Setenv("LOG_TYPE", "logzio-k8s-events-test")
 		logsListInstance := mockLogzioListener.GetLogsListInstance()
 		allLogs := logsListInstance.List
 		eventLog := GetTestEventLog()
@@ -80,7 +80,7 @@ func TestSendLog(t *testing.T) {
 			log.Printf("EventLog JSON marshaling failed: %s", err)
 		}
 		allLogs = append(allLogs, string(parsedEventLog)) // append the log to the list
-		for _, _ = range allLogs {
+		for range allLogs {
 			SendLog("Test log", eventLog)
 		}
 	})
