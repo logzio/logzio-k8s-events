@@ -12,7 +12,6 @@ const (
 )
 const (
 	Metadata           = "metadata"
-	ManagedFields      = "managedFields"
 	ResourceVersion    = "resourceVersion"
 	Annotations        = "annotations"
 	DeploymentRevision = "deployment.kubernetes.io/revision"

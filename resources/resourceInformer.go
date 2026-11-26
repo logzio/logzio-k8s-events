@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -12,58 +11,24 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"log"
 	"main.go/common"
-	"reflect"
 	"sync"
 	"time"
 )
 
-// createResourceInformer creates a dynamic resource informer for a given resource GVR.
-// It will return nil if the informer fails to create.
-func createResourceInformer(resourceGVR schema.GroupVersionResource, clusterClient *dynamic.DynamicClient) (resourceInformer cache.SharedIndexInformer) {
-	// Creates a Kubernetes dynamic informer for the cluster API resources
-	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(clusterClient, 0, corev1.NamespaceAll, nil)
-	resourceInformer = factory.ForResource(resourceGVR).Informer()
-
-	// If the informer is nil, log the failure and return nil
-	if resourceInformer == nil {
-		common.SendLog(fmt.Sprintf("Failed to create informer for resource GVR: '%v'", resourceGVR))
-		return nil
-	}
-
-	// Get a lister for the resource, which is part of the informer
-	lister := factory.ForResource(resourceGVR).Lister()
-
-	// If the lister is nil, informer creation likely failed, log the failure and return nil
-	if lister == nil {
-		common.SendLog(fmt.Sprintf("Failed to create informer for resource GVR: '%v'", resourceGVR))
-		return nil
-	}
-
-	return resourceInformer
-}
-
-// deleteInternalFields deletes internal fields from a Kubernetes object
+// deleteInternalFields deletes internal fields from a Kubernetes object.
+// managedFields are already stripped when the object is cached.
 func deleteInternalFields(obj *unstructured.Unstructured) {
 	if meta, ok := obj.Object[common.Metadata].(map[string]interface{}); ok {
-		if _, ok := meta[common.ManagedFields]; ok {
-			delete(meta, common.ManagedFields)
-		}
-		if _, ok := meta[common.ResourceVersion]; ok {
-			delete(meta, common.ResourceVersion)
-		}
+		delete(meta, common.ResourceVersion)
 		if annotations, ok := meta[common.Annotations].(map[string]interface{}); ok {
-			if _, ok := annotations[common.DeploymentRevision]; ok {
-				delete(annotations, common.DeploymentRevision)
-				// If annotations is empty, delete it
-				if len(annotations) == 0 {
-					delete(meta, common.Annotations)
-				}
+			delete(annotations, common.DeploymentRevision)
+			// An empty annotations map compares equal to none
+			if len(annotations) == 0 {
+				delete(meta, common.Annotations)
 			}
 		}
 	}
-	if _, ok := obj.Object[common.Status]; ok {
-		delete(obj.Object, common.Status)
-	}
+	delete(obj.Object, common.Status)
 }
 
 // IgnoreInternalChanges determines whether the only changes between two Kubernetes objects are internal.
@@ -77,10 +42,10 @@ func IgnoreInternalChanges(oldObj, newObj interface{}) bool {
 
 		deleteInternalFields(oldCopy)
 		deleteInternalFields(newCopy)
-		newJson, _ := json.Marshal(newCopy)
-		oldJson, _ := json.Marshal(oldCopy)
+		newJSON, _ := json.Marshal(newCopy)
+		oldJSON, _ := json.Marshal(oldCopy)
 
-		return string(oldJson) == string(newJson)
+		return string(oldJSON) == string(newJSON)
 	}
 
 	return false
@@ -88,113 +53,107 @@ func IgnoreInternalChanges(oldObj, newObj interface{}) bool {
 
 const eventTimestampFormat = "2006-01-02T15:04:05.000Z07:00"
 
+// cacheSyncWarning is how long the caches may take to sync before a warning is logged
+const cacheSyncWarning = 2 * time.Minute
+
+// shippedResources are the resources whose events are shipped. Pods are only cached, to find related workloads.
+var shippedResources = []schema.GroupVersionResource{
+	{Version: "v1", Resource: "configmaps"},
+	{Version: "v1", Resource: "secrets"},
+	{Version: "v1", Resource: "serviceaccounts"},
+	deploymentsGVR,
+	daemonSetsGVR,
+	statefulSetsGVR,
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"},
+	clusterRoleBindingsGVR,
+}
+
 // inFlightEvents tracks events still being processed, so shutdown waits for them before the final flush
 var inFlightEvents sync.WaitGroup
 
 // handleEvent is replaced in tests to hold an event in progress
 var handleEvent = func(event map[string]interface{}) { StructResourceLog(event) }
 
-// processEvent structures and sends the event in the background
-func processEvent(event map[string]interface{}) {
+// eventGate admits events until shutdown, and holds them until every cache synced, so their related resources are complete
+type eventGate struct {
+	mux     sync.RWMutex
+	open    bool
+	synced  chan struct{}
+	stopped <-chan struct{}
+}
+
+func newEventGate(stopped <-chan struct{}) *eventGate {
+	return &eventGate{open: true, synced: make(chan struct{}), stopped: stopped}
+}
+
+// admit processes the event, unless the gate was closed for shutdown
+func (g *eventGate) admit(event map[string]interface{}) {
+	g.mux.RLock()
+	defer g.mux.RUnlock()
+	if g.open {
+		processEvent(event, g.synced, g.stopped)
+	}
+}
+
+// close stops admitting events. Lock waits for running handlers, so no event starts after this
+func (g *eventGate) close() {
+	g.mux.Lock()
+	g.open = false
+	g.mux.Unlock()
+}
+
+// processEvent stamps the event and handles it in the background once the caches synced.
+// An event still waiting for the caches at shutdown is dropped.
+func processEvent(event map[string]interface{}, synced, stopped <-chan struct{}) {
 	// Logz.io would otherwise stamp the event when it arrives, after lookups and batching
 	event["@timestamp"] = time.Now().UTC().Format(eventTimestampFormat)
 	inFlightEvents.Add(1)
 	go func() {
 		defer inFlightEvents.Done()
+		select {
+		case <-synced:
+		default:
+			select {
+			case <-synced:
+			case <-stopped:
+				return
+			}
+		}
 		handleEvent(event)
 	}()
 }
 
-// addInformerEventHandler adds event handlers to the informer and runs it until ctx is done.
-// It handles add, update, and delete events.
-func addInformerEventHandler(ctx context.Context, resourceInformer cache.SharedIndexInformer) {
-	var event map[string]interface{}
-	synced := false
-
-	mux := &sync.RWMutex{}
-
-	_, err := resourceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		// Handle add event
-		AddFunc: func(obj interface{}) {
-			mux.RLock()
-			defer mux.RUnlock()
-			if !synced {
+// addEventHandler sends the informer's add, update and delete events through the gate
+func addEventHandler(resourceInformer cache.SharedIndexInformer, gate *eventGate) error {
+	_, err := resourceInformer.AddEventHandler(cache.ResourceEventHandlerDetailedFuncs{
+		AddFunc: func(obj interface{}, isInInitialList bool) {
+			// The initial list is the cluster's state at startup, not a change
+			if isInInitialList {
 				return
 			}
-
-			event = map[string]interface{}{
+			gate.admit(map[string]interface{}{
 				"newObject": obj,
 				"eventType": common.EventTypeAdded,
-			}
-			processEvent(event)
-
+			})
 		},
-		// Handle update event
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			mux.RLock()
-			defer mux.RUnlock()
-			if !synced {
-				return
-			}
-
 			if IgnoreInternalChanges(oldObj, newObj) {
 				return // ignore internal cluster updates
-			} else {
-				event = map[string]interface{}{
-					"oldObject": oldObj,
-					"newObject": newObj,
-					"eventType": common.EventTypeModified,
-				}
-				processEvent(event)
 			}
-
+			gate.admit(map[string]interface{}{
+				"oldObject": oldObj,
+				"newObject": newObj,
+				"eventType": common.EventTypeModified,
+			})
 		},
-		// Handle delete event
 		DeleteFunc: func(obj interface{}) {
-			mux.RLock()
-			defer mux.RUnlock()
-			if !synced {
-				return
-			}
-
-			event = map[string]interface{}{
+			gate.admit(map[string]interface{}{
 				"newObject": unwrapDeletedObject(obj),
 				"eventType": common.EventTypeDeleted,
-			}
-			processEvent(event)
-
+			})
 		},
 	})
-
-	if err != nil {
-		msg := fmt.Sprintf("[ERROR] Failed to add event handler for informer.\nERROR:\n%v", err)
-		common.SendLog(msg)
-		return
-	}
-
-	// Start the informer
-	go resourceInformer.Run(ctx.Done())
-
-	// Wait for all caches to sync
-	cache.WaitForCacheSync(ctx.Done(), resourceInformer.HasSynced)
-
-	// Set synced to true after all informers have synced
-	mux.Lock()
-	synced = true
-	mux.Unlock()
-
-	// If the informer failed to sync, log the error and terminate the program, unless it's shutting down
-	if !resourceInformer.HasSynced() && ctx.Err() == nil {
-		log.Fatal("Informer event handler failed to sync.")
-	}
-
-	// Wait for the process to be stopped (SIGINT or SIGTERM)
-	<-ctx.Done()
-
-	// Stop accepting events. Lock waits for running handlers, so no event starts after this
-	mux.Lock()
-	synced = false
-	mux.Unlock()
+	return err
 }
 
 // unwrapDeletedObject returns the deleted object itself when the informer missed the delete and passed a tombstone
@@ -205,78 +164,49 @@ func unwrapDeletedObject(obj interface{}) interface{} {
 	return obj
 }
 
-// AddEventHandlers creates informers and adds event handlers for the specified Kubernetes resources.
-// It blocks until ctx is done and every event in progress was handed to the sender.
-func AddEventHandlers(ctx context.Context) {
-
-	// Define the Kubernetes resources for which to create informers and add event handlers
-	resourceAPIList := map[string]string{
-		"configmaps":          "",
-		"deployments":         "apps",
-		"daemonsets":          "apps",
-		"secrets":             "",
-		"serviceaccounts":     "",
-		"statefulsets":        "apps",
-		"clusterroles":        "rbac.authorization.k8s.io",
-		"clusterrolebindings": "rbac.authorization.k8s.io",
+// Run watches the shipped resources and ships their events, from one shared informer factory that also caches
+// the Pods related workloads are looked up in. It blocks until ctx is done and every event in progress was
+// handed to the sender.
+func Run(ctx context.Context, client dynamic.Interface) {
+	factory := dynamicinformer.NewDynamicSharedInformerFactory(client, 0)
+	relations, err := newRelationCaches(factory)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed to index the informer caches.\nERROR:\n%v", err)
 	}
-	var eventHandlerSync sync.WaitGroup
+	caches = relations
 
-	// Loop over the defined resources
-	for resourceType, resourceGroup := range resourceAPIList {
-		resourceAPI := fmt.Sprintf("%s/v1/%s", resourceGroup, resourceType)
-		resourceGVR := schema.GroupVersionResource{Group: resourceGroup, Version: "v1", Resource: resourceType}
-
-		// Attempt to create an informer for the resource
-		log.Printf("Attempting to create informer for resource API: '%s'", resourceAPI)
-		resourceInformer := createResourceInformer(resourceGVR, common.DynamicClient)
-		if resourceInformer != nil {
-			// If the informer was successfully created, attempt to add an event handler to it
-			log.Printf("Attempting to add event handler to informer for resource API: '%s'", resourceAPI)
-			eventHandlerSync.Add(1)
-			go func() {
-				defer eventHandlerSync.Done()
-				addInformerEventHandler(ctx, resourceInformer)
-			}()
-		} else {
-			// If the informer could not be created, log the failure
-			common.SendLog(fmt.Sprintf("Failed to create informer for resource API: '%s'", resourceAPI))
+	gate := newEventGate(ctx.Done())
+	for _, gvr := range shippedResources {
+		log.Printf("Adding event handler for resource API: '%s'", gvr)
+		informer := factory.ForResource(gvr).Informer()
+		if err := informer.SetTransform(stripManagedFields); err != nil {
+			log.Fatalf("[FATAL] Failed to set the cache transform for resource API: '%s'.\nERROR:\n%v", gvr, err)
+		}
+		if err := addEventHandler(informer, gate); err != nil {
+			common.SendLog(fmt.Sprintf("[ERROR] Failed to add event handler for resource API: '%s'.\nERROR:\n%v", gvr, err))
 		}
 	}
+	factory.Start(ctx.Done())
 
-	// Wait for all informers to stop, then for the events they already started
-	eventHandlerSync.Wait()
+	// A cache that never syncs, e.g. without permission to watch its resource, holds every event, so say which one
+	warnCtx, cancelWarning := context.WithTimeout(ctx, cacheSyncWarning)
+	for gvr, synced := range factory.WaitForCacheSync(warnCtx.Done()) {
+		if !synced && ctx.Err() == nil {
+			common.SendLog(fmt.Sprintf("[WARN] The cache of '%s' did not sync within %s. Events wait until it does.", gvr, cacheSyncWarning))
+		}
+	}
+	cancelWarning()
+	factory.WaitForCacheSync(ctx.Done())
+	if ctx.Err() == nil {
+		close(gate.synced)
+		log.Printf("Informer caches synced.")
+	}
+
+	// Wait for the process to be stopped (SIGINT or SIGTERM)
+	<-ctx.Done()
+	gate.close()
+	factory.Shutdown()
 	inFlightEvents.Wait()
-}
-
-// EventObject converts the raw event object into a common.KubernetesEvent object.
-func EventObject(rawObject map[string]interface{}) (resourceEventObject common.KubernetesEvent) {
-	rawObjUnstructured := &unstructured.Unstructured{}
-	rawObjUnstructured.Object = rawObject
-	unstructuredObjectJSON, err := rawObjUnstructured.MarshalJSON()
-	if err != nil {
-		log.Printf("[ERROR] Failed to marshal unstructured event object.\nERROR:\n%v", err)
-	}
-	err = json.Unmarshal(unstructuredObjectJSON, &resourceEventObject)
-	if err != nil {
-		log.Printf("[ERROR] Failed to unmarshal unstructured event object.\nERROR:\n%v", err)
-	}
-
-	return resourceEventObject
-
-}
-
-// removeManagedFields drops metadata.managedFields from the event's objects.
-// It's large server-side apply bookkeeping that bloats every log and that no dashboard reads.
-// parsedEvent is a copy, so the informer's cached objects are untouched.
-func removeManagedFields(event map[string]interface{}) {
-	for _, objectField := range []string{"newObject", "oldObject"} {
-		if object, ok := event[objectField].(map[string]interface{}); ok {
-			if metadata, ok := object[common.Metadata].(map[string]interface{}); ok {
-				delete(metadata, common.ManagedFields)
-			}
-		}
-	}
 }
 
 // StructResourceLog structures the event log and sends it.
@@ -297,27 +227,15 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 		return
 	}
 	eventType := event["eventType"].(string)
-	newResourceObj := EventObject(logEvent.NewObject)
-	resourceKind := newResourceObj.Kind
-	resourceName := newResourceObj.KubernetesMetadata.Name
-	resourceNamespace := newResourceObj.KubernetesMetadata.Namespace
-	newResourceVersion := newResourceObj.KubernetesMetadata.ResourceVersion
-	msg = common.ParseEventMessage(eventType, resourceName, resourceKind, resourceNamespace, newResourceVersion)
+	newObject := &unstructured.Unstructured{Object: logEvent.NewObject}
 	if eventType == common.EventTypeModified {
-		oldResourceObj := EventObject(logEvent.OldObject)
-		oldResourceName := oldResourceObj.KubernetesMetadata.Name
-		oldResourceNamespace := oldResourceObj.KubernetesMetadata.Namespace
-		oldResourceVersion := oldResourceObj.KubernetesMetadata.ResourceVersion
-		msg = common.ParseEventMessage(eventType, oldResourceName, resourceKind, oldResourceNamespace, newResourceVersion, oldResourceVersion)
-
+		oldObject := &unstructured.Unstructured{Object: logEvent.OldObject}
+		msg = common.ParseEventMessage(eventType, oldObject.GetName(), newObject.GetKind(), oldObject.GetNamespace(), newObject.GetResourceVersion(), oldObject.GetResourceVersion())
+	} else {
+		msg = common.ParseEventMessage(eventType, newObject.GetName(), newObject.GetKind(), newObject.GetNamespace(), newObject.GetResourceVersion())
 	}
 
-	// Get cluster related resources
-	clusterRelatedResources := GetClusterRelatedResources(resourceKind, resourceName, resourceNamespace)
-	// If the cluster related resources are valid, add them to the event
-	if reflect.ValueOf(clusterRelatedResources).IsValid() {
-		event["relatedClusterServices"] = clusterRelatedResources
-	}
+	event["relatedClusterServices"] = GetClusterRelatedResources(logEvent.NewObject)
 
 	jsonString, _ = json.Marshal(event)
 	err = json.Unmarshal(jsonString, &parsedEvent)
@@ -327,7 +245,6 @@ func StructResourceLog(event map[string]interface{}) (isStructured bool, parsedE
 		log.Printf("[ERROR] Failed to parse resource event logs.\nERROR:\n%v", err)
 	} else {
 		isStructured = true
-		removeManagedFields(parsedEvent)
 	}
 	// Send the parsed event log
 	common.SendLog(msg, parsedEvent)

@@ -4,97 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic/dynamicinformer"
 	fakeDynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/tools/cache"
-	"log"
 	"main.go/common"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
-
-// createFakeResourceInformer creates a fake informer for testing purposes
-func createFakeResourceInformer(gvr schema.GroupVersionResource, fakeDynamicClient *fakeDynamic.FakeDynamicClient) (fakeResourceInformer cache.SharedIndexInformer) {
-	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(fakeDynamicClient, 0, corev1.NamespaceAll, nil)
-	fakeResourceInformer = factory.ForResource(gvr).Informer()
-	if fakeResourceInformer == nil {
-		log.Fatalf("[ERROR] Resource Informer was not created") // program will exit if this happens
-	} else {
-		log.Printf("Resource Informer created successfully")
-	}
-	return fakeResourceInformer
-}
-
-// TestCreateResourceInformer tests the creation of a resource informer
-func TestCreateResourceInformer(t *testing.T) {
-	fakeDynamicClient := fakeDynamic.NewSimpleDynamicClient(runtime.NewScheme())
-	resourceGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	informer := createFakeResourceInformer(resourceGVR, fakeDynamicClient)
-
-	if informer == nil {
-		t.Fatalf("Failed to create resource informer") // test will fail if this happens
-	}
-}
-
-// TestEventObject tests the creation of an event object from a map
-func TestEventObject(t *testing.T) {
-	testDeployment := GetTestDeployment()
-	jsonData, err := json.Marshal(testDeployment)
-	if err != nil {
-		t.Fatalf("Failed to marshal test deployment: %s", err)
-	}
-
-	var deploymentMap map[string]interface{}
-	if err = json.Unmarshal(jsonData, &deploymentMap); err != nil {
-		t.Fatalf("Failed to unmarshal deployment map: %s", err)
-	}
-
-	// Deep copy of the map
-	mapBytes, _ := json.Marshal(deploymentMap)
-	var newObject map[string]interface{}
-	if err = json.Unmarshal(mapBytes, &newObject); err != nil {
-		t.Fatalf("Failed to unmarshal new object: %s", err)
-	}
-
-	deploymentMap["eventType"] = common.EventTypeAdded
-	deploymentMap["kind"] = "Deployment"
-	deploymentMap["newObject"] = newObject
-	// Initialize an empty LogEvent
-	logEvent := &common.LogEvent{}
-
-	// Marshal the event to a string
-	eventStr, _ := json.Marshal(deploymentMap)
-	// Unmarshal the string back to a logEvent
-	err = json.Unmarshal(eventStr, logEvent)
-	if err != nil {
-		log.Printf(" Error unmarshalling event")
-		return
-	}
-
-	log.Printf("NEW RAW OBJECT: %v\n", logEvent.NewObject)
-	// Get the new event object
-	eventObject := logEvent.KubernetesEvent
-	log.Printf("NewObject before EventObject: %v\n", newObject)
-	eventObject = EventObject(newObject)
-	log.Printf("KubernetesEvent after EventObject: %v\n", eventObject)
-
-	if eventObject.Kind != "Deployment" {
-		t.Errorf("Failed to create event object, expected kind Deployment, got %s", eventObject.Kind)
-	}
-
-	if eventObject.KubernetesMetadata.Name != "test-deployment" {
-		t.Errorf("Failed to create event object, expected name test-deployment, got %s", eventObject.KubernetesMetadata.Name)
-	}
-
-	if eventObject.KubernetesMetadata.Namespace != "default" {
-		t.Errorf("Failed to create event object, expected namespace default, got %s", eventObject.KubernetesMetadata.Namespace)
-	}
-}
 
 // TestStructResourceLog tests the creation of a structured resource log
 func TestStructResourceLog(t *testing.T) {
@@ -138,7 +59,6 @@ func TestIgnoreInternalChanges(t *testing.T) {
 					common.DeploymentRevision: "1",
 				},
 				common.ResourceVersion: "1000",
-				common.ManagedFields:   []interface{}{},
 			},
 			common.Status: map[string]interface{}{
 				"conditions": []interface{}{
@@ -164,22 +84,6 @@ func TestIgnoreInternalChanges(t *testing.T) {
 	}
 	newObj.Object[common.Metadata].(map[string]interface{})[common.Annotations].(map[string]interface{})[common.DeploymentRevision] = "2"
 	newObj.Object[common.Metadata].(map[string]interface{})[common.ResourceVersion] = "1001"
-	newObj.Object[common.Metadata].(map[string]interface{})[common.ManagedFields] = []interface{}{
-		map[string]interface{}{
-			"manager":    "kubectl",
-			"operation":  "Update",
-			"apiVersion": "v1",
-			"fieldsType": "FieldsV1",
-			"fieldsV1": map[string]interface{}{
-				"f:metadata": map[string]interface{}{
-					"f:annotations": map[string]interface{}{
-						".":                                   map[string]interface{}{},
-						"f:deployment.kubernetes.io/revision": map[string]interface{}{},
-					},
-				},
-			},
-		},
-	}
 
 	// Pass the objects to IgnoreInternalChanges
 	shouldIgnore := IgnoreInternalChanges(oldObj, newObj)
@@ -201,7 +105,7 @@ func TestUnwrapDeletedObject(t *testing.T) {
 	}
 }
 
-func TestAddInformerEventHandlerWaitsForEventsInProgressOnShutdown(t *testing.T) {
+func TestRunInformersWaitsForEventsInProgressOnShutdown(t *testing.T) {
 	started, release := make(chan struct{}, 100), make(chan struct{})
 	t.Cleanup(func() { handleEvent = func(event map[string]interface{}) { StructResourceLog(event) } })
 	handleEvent = func(map[string]interface{}) {
@@ -209,19 +113,24 @@ func TestAddInformerEventHandlerWaitsForEventsInProgressOnShutdown(t *testing.T)
 		<-release
 	}
 
-	gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	client := fakeDynamic.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "DeploymentList"})
-	informer := createFakeResourceInformer(gvr, client)
+	gvr := deploymentsGVR
+	listKinds := map[schema.GroupVersionResource]string{podsGVR: "PodList"}
+	for _, shipped := range shippedResources {
+		listKinds[shipped] = strings.TrimSuffix(strings.ToUpper(shipped.Resource[:1])+shipped.Resource[1:], "s") + "List"
+	}
+	client := fakeDynamic.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
+	previous := caches
+	t.Cleanup(func() { caches = previous })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	stopped := make(chan struct{})
 	go func() {
-		addInformerEventHandler(ctx, informer)
+		Run(ctx, client)
 		close(stopped)
 	}()
 
-	// Events before the handler finished syncing are ignored, so create Deployments until one is handled
+	// Events are held until the caches synced, so create Deployments until one is handled
 	deadline := time.After(5 * time.Second)
 	for i := 0; ; i++ {
 		deployment := &unstructured.Unstructured{Object: map[string]interface{}{
@@ -244,56 +153,15 @@ func TestAddInformerEventHandlerWaitsForEventsInProgressOnShutdown(t *testing.T)
 	cancel()
 	select {
 	case <-stopped:
-	case <-time.After(5 * time.Second):
-		t.Fatal("event handler did not stop after the context was done")
-	}
-
-	eventsDone := make(chan struct{})
-	go func() {
-		inFlightEvents.Wait()
-		close(eventsDone)
-	}()
-	select {
-	case <-eventsDone:
 		t.Fatal("shutdown must wait for the event in progress")
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	close(release)
 	select {
-	case <-eventsDone:
+	case <-stopped:
 	case <-time.After(5 * time.Second):
-		t.Fatal("events in progress did not finish")
-	}
-}
-
-func TestStructResourceLogRemovesManagedFields(t *testing.T) {
-	object := func(generation int64) *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]interface{}{
-			"apiVersion": "apps/v1", "kind": "Deployment",
-			"metadata": map[string]interface{}{
-				"name": "app", "namespace": "default", "generation": generation,
-				"managedFields": []interface{}{map[string]interface{}{"manager": "kubectl"}},
-			},
-		}}
-	}
-	oldObject, newObject := object(1), object(2)
-
-	_, parsedEvent := StructResourceLog(map[string]interface{}{
-		"eventType": common.EventTypeModified, "oldObject": oldObject, "newObject": newObject,
-	})
-
-	for _, objectField := range []string{"newObject", "oldObject"} {
-		metadata := parsedEvent[objectField].(map[string]interface{})["metadata"].(map[string]interface{})
-		if _, ok := metadata["managedFields"]; ok {
-			t.Errorf("%s.metadata.managedFields must not be shipped", objectField)
-		}
-		if metadata["name"] != "app" || metadata["generation"] == nil {
-			t.Errorf("%s.metadata must keep the other fields, got %v", objectField, metadata)
-		}
-	}
-	if _, ok := newObject.Object["metadata"].(map[string]interface{})["managedFields"]; !ok {
-		t.Error("the informer's cached object must not be modified")
+		t.Fatal("informers did not stop after the event in progress finished")
 	}
 }
 
@@ -303,7 +171,9 @@ func TestProcessEventStampsTheEventTime(t *testing.T) {
 	handleEvent = func(event map[string]interface{}) { handled <- event }
 
 	before := time.Now().UTC().Truncate(time.Millisecond)
-	processEvent(map[string]interface{}{"eventType": common.EventTypeAdded})
+	synced := make(chan struct{})
+	close(synced)
+	processEvent(map[string]interface{}{"eventType": common.EventTypeAdded}, synced, nil)
 	event := <-handled
 	inFlightEvents.Wait()
 
@@ -328,5 +198,140 @@ func TestStructResourceLogShipsTheEventTimestamp(t *testing.T) {
 	}
 	if shipped["@timestamp"] != "2026-11-18T10:00:00.000Z" {
 		t.Errorf("expected @timestamp in the shipped log, got %v", shipped["@timestamp"])
+	}
+}
+
+// A Pod created after startup is stripped, indexed and found by an event about its Secret, through the real informers
+func TestSecretEventFindsAPodThroughTheInformerCaches(t *testing.T) {
+	related := make(chan common.RelatedClusterServices, 10)
+	t.Cleanup(func() { handleEvent = func(event map[string]interface{}) { StructResourceLog(event) } })
+	handleEvent = func(event map[string]interface{}) {
+		if object, ok := event["newObject"].(*unstructured.Unstructured); ok && object.GetKind() == "Secret" {
+			related <- GetClusterRelatedResources(object.Object)
+		}
+	}
+	listKinds := map[schema.GroupVersionResource]string{podsGVR: "PodList"}
+	for _, shipped := range shippedResources {
+		listKinds[shipped] = strings.TrimSuffix(strings.ToUpper(shipped.Resource[:1])+shipped.Resource[1:], "s") + "List"
+	}
+	client := fakeDynamic.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
+	previous := caches
+	t.Cleanup(func() { caches = previous })
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		Run(ctx, client)
+		close(stopped)
+	}()
+	t.Cleanup(func() { cancel(); <-stopped })
+
+	pod := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]interface{}{"name": "app-pod", "namespace": "team-a"},
+		"spec": map[string]interface{}{"containers": []interface{}{map[string]interface{}{
+			"name": "app", "image": "app:1",
+			"envFrom": []interface{}{map[string]interface{}{"secretRef": map[string]interface{}{"name": "db"}}},
+		}}},
+	}}
+	if _, err := client.Resource(podsGVR).Namespace("team-a").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The Pod reaches the cache asynchronously, so update the Secret until its event finds the Pod
+	secretsGVR := schema.GroupVersionResource{Version: "v1", Resource: "secrets"}
+	deadline := time.After(5 * time.Second)
+	for i := 0; ; i++ {
+		secret := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]interface{}{"name": "db", "namespace": "team-a"},
+			"data":     map[string]interface{}{"n": fmt.Sprint(i)},
+		}}
+		var err error
+		if i == 0 {
+			_, err = client.Resource(secretsGVR).Namespace("team-a").Create(ctx, secret, metav1.CreateOptions{})
+		} else {
+			_, err = client.Resource(secretsGVR).Namespace("team-a").Update(ctx, secret, metav1.UpdateOptions{})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-related:
+			if len(got.Pods) == 1 && got.Pods[0] == "app-pod" {
+				return
+			}
+		case <-time.After(50 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("no Secret event found the Pod")
+		}
+	}
+}
+
+// Shipped kinds are cached without managedFields, so the handlers never see them
+func TestShippedObjectsAreCachedWithoutManagedFields(t *testing.T) {
+	received := make(chan *unstructured.Unstructured, 10)
+	t.Cleanup(func() { handleEvent = func(event map[string]interface{}) { StructResourceLog(event) } })
+	handleEvent = func(event map[string]interface{}) {
+		if object, ok := event["newObject"].(*unstructured.Unstructured); ok {
+			received <- object
+		}
+	}
+	listKinds := map[schema.GroupVersionResource]string{podsGVR: "PodList"}
+	for _, shipped := range shippedResources {
+		listKinds[shipped] = strings.TrimSuffix(strings.ToUpper(shipped.Resource[:1])+shipped.Resource[1:], "s") + "List"
+	}
+	client := fakeDynamic.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
+	previous := caches
+	t.Cleanup(func() { caches = previous })
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		Run(ctx, client)
+		close(stopped)
+	}()
+	t.Cleanup(func() { cancel(); <-stopped })
+
+	configMapsGVR := schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+	deadline := time.After(5 * time.Second)
+	for i := 0; ; i++ {
+		configMap := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name": fmt.Sprintf("cm-%d", i), "namespace": "team-a",
+				"managedFields": []interface{}{map[string]interface{}{"manager": "kubectl", "operation": "Apply"}},
+			},
+		}}
+		if _, err := client.Resource(configMapsGVR).Namespace("team-a").Create(ctx, configMap, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case object := <-received:
+			if _, found, _ := unstructured.NestedFieldNoCopy(object.Object, "metadata", "managedFields"); found {
+				t.Fatal("the handler got an object with managedFields")
+			}
+			if object.GetName() == "" {
+				t.Fatal("the transform must keep the rest of the object")
+			}
+			return
+		case <-time.After(50 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("no event was handled")
+		}
+	}
+}
+
+func TestStripManagedFieldsIsIdempotent(t *testing.T) {
+	object := &unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "a", "managedFields": []interface{}{map[string]interface{}{"manager": "m"}}},
+		"data":     map[string]interface{}{"k": "v"},
+	}}
+	once, _ := stripManagedFields(object.DeepCopy())
+	twice, _ := stripManagedFields(once.(*unstructured.Unstructured).DeepCopy())
+	want := map[string]interface{}{"metadata": map[string]interface{}{"name": "a"}, "data": map[string]interface{}{"k": "v"}}
+	if !reflect.DeepEqual(once.(*unstructured.Unstructured).Object, want) || !reflect.DeepEqual(twice, once) {
+		t.Errorf("unexpected result: once %v, twice %v", once, twice)
+	}
+	if tombstone := (cache.DeletedFinalStateUnknown{Key: "k"}); !reflect.DeepEqual(func() interface{} { o, _ := stripManagedFields(tombstone); return o }(), tombstone) {
+		t.Error("a non-unstructured object must pass through unchanged")
 	}
 }

@@ -23,12 +23,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Configuring dynamic client for kubernetes cluster
-	common.DynamicClient = common.ConfigureClusterDynamicClient()
-	if common.DynamicClient != nil {
-		// Adding event handlers if dynamic client is configured successfully
-		resources.AddEventHandlers(ctx)
-	}
+	resources.Run(ctx, common.ConfigureClusterDynamicClient())
 
 	log.Printf("Stopping K8S Events Logz.io Integration, sending the remaining logs.")
 	common.LogzioSender.Stop() // Stopping the logz.io logger after the application finishes

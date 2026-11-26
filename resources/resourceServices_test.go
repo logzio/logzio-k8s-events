@@ -1,170 +1,86 @@
 package resources
 
 import (
-	"main.go/common"
 	"reflect"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"main.go/common"
 )
 
-// TestSecretRelatedWorkloads tests that the related workloads for a secret are correctly identified.
-func TestSecretRelatedWorkloads(t *testing.T) {
-	var pods []Workload
-	var daemonsets []Workload
-	var deployments []Workload
-	var statefulsets []Workload
+// useTestFixtures caches every test workload and cluster role binding
+func useTestFixtures(t *testing.T) {
+	objects := make([]runtime.Object, 0, 9)
 	for _, pod := range GetTestPods() {
-		pods = append(pods, Pod(pod))
-	}
-	for _, daemonset := range GetTestDaemonSets() {
-		daemonsets = append(daemonsets, DaemonSet(daemonset))
+		objects = append(objects, &pod)
 	}
 	for _, deployment := range GetTestDeployments() {
-		deployments = append(deployments, Deployment(deployment))
+		objects = append(objects, &deployment)
 	}
-	for _, statefulset := range GetTestStatefulSets() {
-		statefulsets = append(statefulsets, StatefulSet(statefulset))
+	for _, daemonSet := range GetTestDaemonSets() {
+		objects = append(objects, &daemonSet)
 	}
-
-	secretName := "test-secret"
-	relatedPods := GetSecretRelatedWorkloads(secretName, pods)
-	relatedDaemonsets := GetSecretRelatedWorkloads(secretName, daemonsets)
-	relatedDeployments := GetSecretRelatedWorkloads(secretName, deployments)
-	relatedStatefulSets := GetSecretRelatedWorkloads(secretName, statefulsets)
-	// Similarly, call getRelatedWorkloads for other workload types...
-
-	relatedWorkloads := common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
-
-	if reflect.ValueOf(relatedWorkloads).IsZero() {
-		t.Errorf("Expected related workloads for secret: %s, got zero", secretName)
-	} else {
-		t.Logf("Secret: %s related workloads:\n%v", secretName, relatedWorkloads)
+	for _, statefulSet := range GetTestStatefulSets() {
+		objects = append(objects, &statefulSet)
 	}
+	for _, binding := range GetTestClusterRoleBindings() {
+		objects = append(objects, &binding)
+	}
+	useFakeCaches(t, objects...)
 }
 
-// TestConfigMapRelatedWorkloads tests that the related workloads for a configmap are correctly identified.
-func TestConfigMapRelatedWorkloads(t *testing.T) {
-
-	var pods []Workload
-	var daemonsets []Workload
-	var deployments []Workload
-	var statefulsets []Workload
-	for _, pod := range GetTestPods() {
-		pods = append(pods, Pod(pod))
-	}
-	for _, daemonset := range GetTestDaemonSets() {
-		daemonsets = append(daemonsets, DaemonSet(daemonset))
-	}
-	for _, deployment := range GetTestDeployments() {
-		deployments = append(deployments, Deployment(deployment))
-	}
-	for _, statefulset := range GetTestStatefulSets() {
-		statefulsets = append(statefulsets, StatefulSet(statefulset))
-	}
-
-	configMapName := "test-configmap"
-	relatedPods := GetConfigMapRelatedWorkloads(configMapName, pods)
-	relatedDaemonsets := GetConfigMapRelatedWorkloads(configMapName, daemonsets)
-	relatedDeployments := GetConfigMapRelatedWorkloads(configMapName, deployments)
-	relatedStatefulSets := GetConfigMapRelatedWorkloads(configMapName, statefulsets)
-
-	relatedWorkloads := common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
-
-	if reflect.ValueOf(relatedWorkloads).IsZero() {
-		t.Errorf("Expected related workloads for configmap: %s, got zero", configMapName)
-	} else {
-		t.Logf("ConfigMap: %s related workloads:\n%v", configMapName, relatedWorkloads)
-	}
+// allTestWorkloads are the test workloads that all reference the same Secret, ConfigMap and ServiceAccount
+var allTestWorkloads = common.RelatedClusterServices{
+	Deployments:  []string{"test-deployment", "test-deployment-2"},
+	DaemonSets:   []string{"test-daemonset", "test-daemonset-2"},
+	StatefulSets: []string{"test-statefulset", "test-statefulset-2"},
+	Pods:         []string{"test-pod", "test-pod-2"},
 }
 
-// TestServiceAccountRelatedWorkloads tests that the related workloads for a service account are correctly identified.
-func TestServiceAccountRelatedWorkloads(t *testing.T) {
-	serviceAccountName := "test-serviceaccount"
+func TestReferencedResourcesRelateToEveryWorkload(t *testing.T) {
+	useTestFixtures(t)
+	inDefault := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Name: name, Namespace: "default"} }
 
-	relatedWorkloads := ServiceAccountTestRelatedWorkloads(serviceAccountName)
-	if reflect.ValueOf(relatedWorkloads).IsZero() {
-		t.Errorf("Expected related workloads for serviceaccount: %s, got zero", serviceAccountName)
-	} else {
-		t.Logf("Service account: %s related workloads:\n%v", serviceAccountName, relatedWorkloads)
-	}
-}
-
-// ServiceAccountTestRelatedWorkloads returns a list of related workloads for a test service account are correctly identified.
-func ServiceAccountTestRelatedWorkloads(serviceAccountName string) (relatedWorkloads common.RelatedClusterServices) {
-	var pods []Workload
-	var daemonsets []Workload
-	var deployments []Workload
-	var statefulsets []Workload
-	for _, pod := range GetTestPods() {
-		pods = append(pods, Pod(pod))
-	}
-	for _, daemonset := range GetTestDaemonSets() {
-		daemonsets = append(daemonsets, DaemonSet(daemonset))
-	}
-	for _, deployment := range GetTestDeployments() {
-		deployments = append(deployments, Deployment(deployment))
-	}
-	for _, statefulset := range GetTestStatefulSets() {
-		statefulsets = append(statefulsets, StatefulSet(statefulset))
-	}
-
-	relatedPods := GetServiceAccountRelatedWorkloads(serviceAccountName, pods)
-	relatedDaemonsets := GetServiceAccountRelatedWorkloads(serviceAccountName, daemonsets)
-	relatedDeployments := GetServiceAccountRelatedWorkloads(serviceAccountName, deployments)
-	relatedStatefulSets := GetServiceAccountRelatedWorkloads(serviceAccountName, statefulsets)
-
-	relatedWorkloads = common.RelatedClusterServices{Deployments: relatedDeployments, DaemonSets: relatedDaemonsets, StatefulSets: relatedStatefulSets, Pods: relatedPods}
-
-	return relatedWorkloads
-}
-
-// TestClusterRoleBindingRelatedWorkloads tests that the related workloads for a cluster role binding are correctly identified.
-func TestClusterRoleBindingRelatedWorkloads(t *testing.T) {
-	//
-	var relatedWorkloads common.RelatedClusterServices
-	clusterRoleBindingName := "test-clusterrolebinding"
-	clusterRoleBinding := GetTestClusterRoleBinding(clusterRoleBindingName)
-
-	// Iterate through the StatefulSets and check for the config map.
-	if reflect.ValueOf(clusterRoleBinding).IsValid() {
-		for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-			if clusterRoleBindingSubject.Kind == "ServiceAccount" {
-				serviceAccountName := clusterRoleBindingSubject.Name
-				relatedWorkloads = ServiceAccountTestRelatedWorkloads(serviceAccountName)
-			}
+	for kind, object := range map[string]runtime.Object{
+		"Secret":             &corev1.Secret{ObjectMeta: inDefault("test-secret")},
+		"ConfigMap":          &corev1.ConfigMap{ObjectMeta: inDefault("test-configmap")},
+		"ServiceAccount":     &corev1.ServiceAccount{ObjectMeta: inDefault("test-serviceaccount")},
+		"ClusterRole":        &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "test-clusterrole"}},
+		"ClusterRoleBinding": func() runtime.Object { b := GetTestClusterRoleBinding("test-clusterrolebinding"); return &b }(),
+	} {
+		if related := GetClusterRelatedResources(eventObject(t, object)); !reflect.DeepEqual(related, allTestWorkloads) {
+			t.Errorf("%s: expected %+v, got %+v", kind, allTestWorkloads, related)
 		}
-
-	}
-
-	if reflect.ValueOf(relatedWorkloads).IsZero() {
-		t.Errorf("Expected related workloads for cluster role binding: %s, got zero", clusterRoleBindingName)
-	} else {
-		t.Logf("Cluster role binding: %s related workloads:\n%v", clusterRoleBindingName, relatedWorkloads)
 	}
 }
 
-// TestClusterRoleRelatedWorkloads tests that the related workloads for a cluster role are correctly identified.
-func TestClusterRoleRelatedWorkloads(t *testing.T) {
-	var relatedWorkloads common.RelatedClusterServices
-	clusterRoleName := "test-clusterrole"
-	clusterRoleBindings := GetTestClusterRoleBindings()
+func TestUnreferencedResourceHasNoRelatedWorkloads(t *testing.T) {
+	useTestFixtures(t)
 
-	for _, clusterRoleBinding := range clusterRoleBindings {
-		clusterRoleRef := clusterRoleBinding.RoleRef.Name
-		if clusterRoleRef == clusterRoleName && reflect.ValueOf(clusterRoleBinding).IsValid() {
-			for _, clusterRoleBindingSubject := range clusterRoleBinding.Subjects {
-				if clusterRoleBindingSubject.Kind == "ServiceAccount" {
-					serviceAccountName := clusterRoleBindingSubject.Name
-					relatedWorkloads = ServiceAccountTestRelatedWorkloads(serviceAccountName)
-				}
-			}
+	related := GetClusterRelatedResources(eventObject(t, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "unused", Namespace: "default"}}))
 
-		}
-
+	if !reflect.DeepEqual(related, common.RelatedClusterServices{}) {
+		t.Errorf("expected no related workloads, got %+v", related)
 	}
+}
 
-	if reflect.ValueOf(relatedWorkloads).IsZero() {
-		t.Errorf("Expected related workloads for clusterrole: %s, got zero", clusterRoleName)
-	} else {
-		t.Logf("Cluster role: %s related workloads:\n%v", clusterRoleName, relatedWorkloads)
+func TestWorkloadEventsReportTheirReferencesAndBindings(t *testing.T) {
+	useTestFixtures(t)
+	want := common.RelatedClusterServices{
+		ConfigMaps:          []string{"test-configmap"},
+		Secrets:             []string{"test-secret"},
+		ServiceAccounts:     []string{"test-serviceaccount"},
+		ClusterRoleBindings: []string{"test-clusterrolebinding", "test-clusterrolebinding-2"},
+		ClusterRoles:        []string{"test-clusterrole"},
+	}
+	deployment, daemonSet, statefulSet := GetTestDeployment(), GetTestDaemonSet(), GetTestStatefulSet()
+
+	for _, object := range []runtime.Object{&deployment, &daemonSet, &statefulSet} {
+		if related := GetClusterRelatedResources(eventObject(t, object)); !reflect.DeepEqual(related, want) {
+			t.Errorf("%T: expected %+v, got %+v", object, want, related)
+		}
 	}
 }

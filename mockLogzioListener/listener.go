@@ -41,9 +41,13 @@ func (h *ListenerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Read the request body
 		reqBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read the request body", http.StatusBadRequest)
+			return
+		}
 
 		var requestBody RequestBody
-		json.Unmarshal(reqBody, &requestBody)
+		_ = json.Unmarshal(reqBody, &requestBody)
 		b, err := json.Marshal(requestBody)
 
 		log.Printf("%s", b)
@@ -82,7 +86,7 @@ func (h *ListenerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Return a success response
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Shabam! got logs."))
+		_, _ = w.Write([]byte("Shabam! got logs."))
 	} else { // For all other HTTP methods, return a method not allowed error
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
@@ -226,7 +230,7 @@ func findAvailablePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	addr := listener.Addr().(*net.TCPAddr)
 	return addr.Port, nil
 }

@@ -7,11 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"k8s.io/utils/strings/slices"
 	"log"
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -98,16 +98,15 @@ type RelatedClusterServices struct {
 	ClusterRoleBindings []string `json:"clusterrolebindings,omitempty"`
 }
 
-// IsValidList checks if an array is valid
-func IsValidList(arrayFieldI []interface{}) (listField []interface{}, isValidArray bool) {
-	// Logz.io doesn't support nested array objects well as they contain different data types
+// IsValidList reports whether the array holds any element that isn't an object.
+// Logz.io doesn't support nested array objects well as they contain different data types
+func IsValidList(arrayFieldI []interface{}) (isValidArray bool) {
 	for _, v := range arrayFieldI {
-		_, isMap := v.(map[string]interface{})
-		if !isMap {
-			isValidArray = true
+		if _, isMap := v.(map[string]interface{}); !isMap {
+			return true
 		}
 	}
-	return arrayFieldI, isValidArray
+	return false
 }
 
 // ParseEventMessage parses event messages from the kubernetes event log
@@ -118,17 +117,17 @@ func ParseEventMessage(eventType string, resourceName string, resourceKind strin
 		inNamespaceMsg = " in namespace: " + resourceNamespace
 	}
 
-	if eventType == EventTypeModified {
+	switch eventType {
+	case EventTypeModified:
 		if len(oldResourceVersions) > 0 {
 			oldResourceVersion := oldResourceVersions[0]
 			msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s was updated from version: %s to new version: %s.", resourceName, resourceKind, inNamespaceMsg, oldResourceVersion, newResourceVersion)
 		}
-	} else if eventType == EventTypeDeleted {
+	case EventTypeDeleted:
 		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s with version: %s was deleted.", resourceName, resourceKind, inNamespaceMsg, newResourceVersion)
-
-	} else if eventType == EventTypeAdded {
+	case EventTypeAdded:
 		msg = fmt.Sprintf("[EVENT] Resource: %s of kind: %s%s was added with version: %s.", resourceName, resourceKind, inNamespaceMsg, newResourceVersion)
-	} else {
+	default:
 		log.Printf("[ERROR] Failed to parse resource event log message. Unknown eventType: %s.\n", eventType)
 	}
 
@@ -155,7 +154,7 @@ func FormatFieldValue(value interface{}) (fieldValue interface{}) {
 
 	if ok {
 
-		_, isValidArray := IsValidList(arrayFieldI)
+		isValidArray := IsValidList(arrayFieldI)
 		if !isValidArray {
 			arrayNestedField, err := json.Marshal(arrayFieldI)
 			if err != nil {
@@ -179,7 +178,7 @@ func FormatFieldOverLimit(fieldName string, fieldValue interface{}) (fieldOverLi
 	if len(fmt.Sprint(fieldValue)) >= valueLengthLimit && !strings.HasSuffix(fieldName, "_overLimit") {
 		// Add the field to the fieldsOverLimit slice, so it will be ignored in the next iteration
 		// Truncate the field value to the limit
-		truncatedFieldValue = fmt.Sprintf("%s", fmt.Sprint(fieldValue)[:valueLengthLimit])
+		truncatedFieldValue = fmt.Sprint(fieldValue)[:valueLengthLimit]
 		// Rename the field if it passes value length limit
 		fieldOverLimit = fmt.Sprintf("%s_overLimit", fieldName)
 		// Add the field to the fieldsOverLimit slice, so it will be ignored in the next iteration
@@ -270,7 +269,7 @@ func parseLogzioLimitsOfKind(eventLog map[string]interface{}, eventKind string) 
 		// Check if the field contains a dot/slash/hyphen and replace it with underscore
 		// Check if the field is empty
 
-		if !reflect.ValueOf(value).IsValid() || value == nil || IsEmptyMap(value) {
+		if value == nil || IsEmptyMap(value) {
 			// Remove the empty or invalid/nil/struct{} field from the log
 			delete(parsedLogEvent, field)
 			continue
@@ -295,26 +294,23 @@ func parseLogzioLimitsOfKind(eventLog map[string]interface{}, eventKind string) 
 		if ok {
 			parseLogzioLimitsOfKind(nestedField, eventKind)
 		} else {
-			{
-				maskEnvVars(value)
-				if eventKind != "Secret" {
-					if maskedValue, changed := maskLastAppliedEnvVars(fieldName, value); changed {
-						value = maskedValue
-						parsedLogEvent[fieldName] = value
-					}
+			maskEnvVars(value)
+			if eventKind != "Secret" {
+				if maskedValue, changed := maskLastAppliedEnvVars(fieldName, value); changed {
+					value = maskedValue
+					parsedLogEvent[fieldName] = value
 				}
-				fieldValue := FormatFieldValue(value)
-				if !reflect.DeepEqual(value, fieldValue) {
-					// Add the field value to the parsed log
-					parsedLogEvent[fieldName] = fieldValue
-				}
+			}
+			fieldValue := FormatFieldValue(value)
+			if !reflect.DeepEqual(value, fieldValue) {
+				// Add the field value to the parsed log
+				parsedLogEvent[fieldName] = fieldValue
+			}
 
-				fieldOverLimit, truncatedFieldValue := FormatFieldOverLimit(fieldName, fieldValue)
-				if fieldOverLimit != fieldName {
-					parsedLogEvent[fieldOverLimit] = truncatedFieldValue
-					delete(parsedLogEvent, fieldName)
-				}
-
+			fieldOverLimit, truncatedFieldValue := FormatFieldOverLimit(fieldName, fieldValue)
+			if fieldOverLimit != fieldName {
+				parsedLogEvent[fieldOverLimit] = truncatedFieldValue
+				delete(parsedLogEvent, fieldName)
 			}
 
 		}
@@ -327,7 +323,7 @@ func parseLogzioLimitsOfKind(eventLog map[string]interface{}, eventKind string) 
 // hashData hashes sensitive data with HMAC-SHA256
 func hashData(data interface{}) string {
 	mac := hmac.New(sha256.New, hashKey)
-	mac.Write([]byte(fmt.Sprint(data)))
+	_, _ = fmt.Fprint(mac, data) // writing to a hash never fails
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

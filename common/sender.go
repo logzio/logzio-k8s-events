@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -123,7 +122,6 @@ func ParseEventLog(msg string, extraFields ...map[string]interface{}) (eventLog 
 func SendLog(msg string, extraFields ...map[string]interface{}) {
 
 	if LogzioSender != nil {
-		var senderWG sync.WaitGroup // Create a new WaitGroup here
 		var eventLog string
 		if len(extraFields) > 0 {
 			eventLog = ParseEventLog(msg, extraFields[0])
@@ -133,14 +131,6 @@ func SendLog(msg string, extraFields ...map[string]interface{}) {
 		if eventLog == "" {
 			return
 		}
-
-		senderWG.Add(1) // Increment the WaitGroup
-		go func() {
-			defer senderWG.Done() // Decrement the WaitGroup when the goroutine finishes
-			shipLogEvent(msg, eventLog)
-
-		}()
-
-		senderWG.Wait() // Wait for all goroutines to finish
+		shipLogEvent(msg, eventLog)
 	}
 }

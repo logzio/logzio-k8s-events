@@ -237,7 +237,7 @@ func GetTestStatefulSet() (relatedStatefulsets appsv1.StatefulSet) {
 			},
 		},
 		Status: appsv1.StatefulSetStatus{
-			Replicas: *new(int32),
+			Replicas: int32(0),
 		},
 	}
 	return statefulSet
